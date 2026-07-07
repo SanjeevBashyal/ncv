@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68,<77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ncv"
+version = "0.0.2"
+description = "A quick PyQt5 viewer for NetCDF files"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+  { name = "Matthias Cuntz" }
+]
+dependencies = [
+  "matplotlib",
+  "netCDF4",
+  "numpy",
+  "PyQt5"
+]
+
+[project.optional-dependencies]
+xarray = ["xarray"]
+map = ["cartopy"]
+test = ["pytest"]
+full = ["xarray", "cartopy"]
+
+[project.scripts]
+ncv = "ncv.__main__:main"
+
+[tool.setuptools]
+packages = ["ncv"]
+
+[tool.setuptools.package-data]
+ncv = [
+  "images/*.png",
+  "images/*.ico",
+  "themes/**/*"
+]
