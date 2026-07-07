@@ -58,8 +58,11 @@ try:
 except ModuleNotFoundError:
     from tkinter.ttk import Frame
     ihavectk = False
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
+try:
+    import cartopy.crs as ccrs
+    import cartopy.feature as cfeature
+except ModuleNotFoundError:
+    ccrs = cfeature = None
 import netCDF4 as nc
 import numpy as np
 try:
@@ -110,6 +113,9 @@ class ncvMap(Frame):
         from matplotlib.figure import Figure
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
         from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+
+        if ccrs is None:
+            raise RuntimeError("Cartopy is required for the legacy Tk map panel.")
 
         super().__init__(master, **kwargs)
 

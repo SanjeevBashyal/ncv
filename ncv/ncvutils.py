@@ -82,20 +82,22 @@ except ModuleNotFoundError:
 from math import isfinite
 import numpy as np
 import matplotlib.dates as mpld
-import cartopy.crs as ccrs
+try:
+    import cartopy.crs as ccrs
+except ModuleNotFoundError:
+    ccrs = None
 try:
     import xarray as xr
     ihavex = True
 except ModuleNotFoundError:
     ihavex = False
 from .ncvscreen import ncvScreen
-import ncvue
 
 
 __all__ = ['DIMMETHODS',
            'add_cyclic', 'has_cyclic', 'clone_ncvmain',
            'format_coord_contour', 'format_coord_map', 'format_coord_scatter',
-           'get_slice', 'get_standard_name', 'get_units',
+           'get_slice', 'get_slice_values', 'get_standard_name', 'get_units',
            'list_intersection', 'parse_entry',
            'selvar', 'set_axis_label', 'set_miss',
            'spinbox_values', 'vardim2var',
@@ -478,7 +480,8 @@ def clone_ncvmain(widget):
                 clone.configure({key: widget.cget(key)})
     except TypeError:
         # in case of CustomTkinter
-        cls = ncvue.ncvMain
+        from .ncvmain import ncvMain
+        cls = ncvMain
         clone = cls(root)
         clone.pack(fill=tk.BOTH, expand=1)
 
@@ -589,6 +592,9 @@ def format_coord_map(x, y, ax, xx, yy, zz):
     ...     x, y, ax, xx, yy, zz)
 
     """
+    if ccrs is None:
+        return f'x={x:.6g}, y={y:.6g}'
+
     # find closest grid cell
     xpp, ypp = ccrs.PlateCarree(central_longitude=0).transform_point(
         x, y, ax.projection)
@@ -676,14 +682,15 @@ def format_coord_scatter(x, y, ax, ax2, xdtype, ydtype, y2dtype):
     return out
 
 
-def get_slice(dimspins, y):
+def get_slice_values(dim_values, y):
     """
-    Get slice of variable `y` inquiring the spinboxes `dimspins`.
+    Get slice of variable `y` from dimension selector values.
 
     Parameters
     ----------
-    dimspins : list
-        List of tk.Spinbox widgets of dimensions
+    dim_values : list
+        List of dimension selector values. Each value is either ``all``,
+        one of ``DIMMETHODS``, or a numeric dimension index.
     y : ndarray or netCDF4._netCDF4.Variable
         Input array or netcdf variable
 
@@ -697,7 +704,7 @@ def get_slice(dimspins, y):
     >>> gy, vy = vardim2var(y, self.groups)
     >>> yy = selvar(self, vy)
     >>> miss = get_miss(self, yy)
-    >>> yy = get_slice(self.yd, yy).squeeze()
+    >>> yy = get_slice_values(['all', '0'], yy).squeeze()
     >>> yy = set_miss(miss, yy)
 
     """
@@ -710,7 +717,7 @@ def get_slice(dimspins, y):
     dd = []
     ss = []
     for i in range(y.ndim):
-        dim = dimspins[i].get()
+        dim = str(dim_values[i])
         if dim in methods:
             s = slice(0, y.shape[i])
         else:
@@ -755,6 +762,17 @@ def get_slice(dimspins, y):
             return yout
     else:
         return np.array([], dtype=y.dtype)
+
+
+def get_slice(dimspins, y):
+    """
+    Get slice of variable `y` inquiring dimension selector widgets.
+
+    This compatibility wrapper accepts Tk spinboxes or any object exposing
+    ``get()``. New Qt code should pass plain values to ``get_slice_values``.
+
+    """
+    return get_slice_values([dimspins[i].get() for i in range(y.ndim)], y)
 
 
 def get_standard_name(ivar):
@@ -944,10 +962,10 @@ def selvar(self, var):
     selvar(self, var)
 
     """
+    if self.usex:
+        return self.fi[var]
     if len(self.fi) == 0:
         return
-    elif self.usex:
-        return self.fi[var]
     elif len(self.fi) == 1:
         fil = self.fi[0]
         return fil[var]
