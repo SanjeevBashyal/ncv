@@ -146,20 +146,17 @@ class MapPanel(PlotPanel, Ui_MapPanel):
         self.pushButton_runForward.clicked.connect(self.nrun_t)
         self.pushButton_nextTime.clicked.connect(self.next_t)
         self.pushButton_lastTime.clicked.connect(self.last_t)
-        self.comboBox_repeat.currentIndexChanged.connect(self.repeat_t)
-        self.pushButton_prevVariable.clicked.connect(self.prev_v)
-        self.pushButton_nextVariable.clicked.connect(self.next_v)
         self.comboBox_variable.currentIndexChanged.connect(self.selected_v)
         self.checkBox_transVariable.stateChanged.connect(self.checked)
-        self.lineEdit_vmin.editingFinished.connect(self.entered_v)
-        self.lineEdit_vmax.editingFinished.connect(self.entered_v)
+        self.lineEdit_min.editingFinished.connect(self.entered_v)
+        self.lineEdit_max.editingFinished.connect(self.entered_v)
         self.checkBox_allValues.stateChanged.connect(self.checked_all)
         self.vd.changed.connect(self.spinned_v)
-        self.comboBox_lon.currentIndexChanged.connect(self.selected_lon)
-        self.checkBox_invLon.stateChanged.connect(self.checked)
-        self.checkBox_shiftLon.stateChanged.connect(self.checked)
-        self.comboBox_lat.currentIndexChanged.connect(self.selected_lat)
-        self.checkBox_invLat.stateChanged.connect(self.checked)
+        self.comboBox_longitude.currentIndexChanged.connect(self.selected_lon)
+        self.checkBox_invLongitude.stateChanged.connect(self.checked)
+        self.checkBox_shiftLongitude.stateChanged.connect(self.checked)
+        self.comboBox_latitude.currentIndexChanged.connect(self.selected_lat)
+        self.checkBox_invLatitude.stateChanged.connect(self.checked)
         self.lond.changed.connect(self.spinned_lon)
         self.latd.changed.connect(self.spinned_lat)
         self.comboBox_cmap.currentIndexChanged.connect(self.selected_cmap)
@@ -178,36 +175,37 @@ class MapPanel(PlotPanel, Ui_MapPanel):
         self.iunlim = -1
         self.nunlim = 0
         columns = self.columns()
-        for combo in (self.comboBox_variable, self.comboBox_lon,
-                      self.comboBox_lat):
+        for combo in (self.comboBox_variable, self.comboBox_longitude,
+                      self.comboBox_latitude):
             set_combo_items(combo, columns, "")
         for dims in (self.vd, self.lond, self.latd):
             dims.set_specs(empty_dimension_specs(self.maxdim))
-        self.lineEdit_vmin.setText("None")
-        self.lineEdit_vmax.setText("None")
-        self.horizontalSlider_timeStep.setRange(0, 1)
+        self.lineEdit_min.setText("None")
+        self.lineEdit_max.setText("None")
+        self.horizontalSlider_timeStep.setRange(0, 0)
         self.horizontalSlider_timeStep.setValue(0)
         self.comboBox_repeat.setCurrentText("repeat")
         if self.usex:
             if self.lonvar:
-                self.comboBox_lon.setCurrentText(self.lonvar)
+                self.comboBox_longitude.setCurrentText(self.lonvar)
                 self.lond.set_specs(dimension_specs(
-                    self, self.comboBox_lon.currentText(), "lon"))
+                    self, self.comboBox_longitude.currentText(), "lon"))
             if self.latvar:
-                self.comboBox_lat.setCurrentText(self.latvar)
+                self.comboBox_latitude.setCurrentText(self.latvar)
                 self.latd.set_specs(dimension_specs(
-                    self, self.comboBox_lat.currentText(), "lat"))
+                    self, self.comboBox_latitude.currentText(), "lat"))
         else:
             if any(self.lonvar):
                 lon = next(item for item in self.lonvar if item)
-                self.comboBox_lon.setCurrentText(lon)
+                self.comboBox_longitude.setCurrentText(lon)
                 self.lond.set_specs(dimension_specs(
-                    self, self.comboBox_lon.currentText(), "lon"))
+                    self, self.comboBox_longitude.currentText(), "lon"))
             if any(self.latvar):
                 lat = next(item for item in self.latvar if item)
-                self.comboBox_lat.setCurrentText(lat)
+                self.comboBox_latitude.setCurrentText(lat)
                 self.latd.set_specs(dimension_specs(
-                    self, self.comboBox_lat.currentText(), "lat"))
+                    self, self.comboBox_latitude.currentText(), "lat"))
+        self._sync_time_controls()
         self._updating = False
 
     def checked(self):
@@ -218,8 +216,8 @@ class MapPanel(PlotPanel, Ui_MapPanel):
         if self._updating:
             return
         vmin, vmax = self.get_vminmax()
-        self.lineEdit_vmin.setText(str(vmin))
-        self.lineEdit_vmax.setText(str(vmax))
+        self.lineEdit_min.setText(str(vmin))
+        self.lineEdit_max.setText(str(vmax))
         self.redraw()
 
     def entered_clon(self):
@@ -234,86 +232,80 @@ class MapPanel(PlotPanel, Ui_MapPanel):
     def selected_proj(self):
         self.checked()
 
-    def repeat_t(self):
-        pass
-
     def first_t(self):
-        self.set_tstep(0)
-        self.update_frame(True)
+        self._show_frame(0)
 
     def last_t(self):
-        self.set_tstep(max(self.nunlim - 1, 0))
-        self.update_frame(True)
+        self._show_frame(self.nunlim - 1)
 
     def nrun_t(self):
-        if self.timer.isActive():
-            self.timer.stop()
-            self.pushButton_runForward.setText(">")
-        else:
-            self.anim_inc = 1
-            self.pushButton_runBackward.setText("<")
-            self.pushButton_runForward.setText("||")
-            self.timer.start()
+        self._toggle_animation(1)
 
     def prun_t(self):
-        if self.timer.isActive():
-            self.timer.stop()
-            self.pushButton_runBackward.setText("<")
-        else:
-            self.anim_inc = -1
-            self.pushButton_runForward.setText(">")
-            self.pushButton_runBackward.setText("||")
-            self.timer.start()
+        self._toggle_animation(-1)
 
     def next_t(self):
-        it = self._current_time_index()
-        if it < self.nunlim - 1:
-            it += 1
-        elif self.comboBox_repeat.currentText() == "repeat":
-            it = 0
-        elif self.comboBox_repeat.currentText() == "reflect" and it > 0:
-            it -= 1
-        self.set_tstep(it)
-        self.update_frame(True)
+        self._show_frame(self._next_time_index(1)[0])
 
     def prev_t(self):
-        it = self._current_time_index()
-        if it > 0:
-            it -= 1
-        elif self.comboBox_repeat.currentText() == "repeat":
-            it = max(self.nunlim - 1, 0)
-        elif (self.comboBox_repeat.currentText() == "reflect"
-              and self.nunlim > 1):
-            it += 1
-        self.set_tstep(it)
-        self.update_frame(True)
+        self._show_frame(self._next_time_index(-1)[0])
 
-    def _move_v(self, step):
-        idx = self.comboBox_variable.currentIndex() + step
-        if 0 < idx < self.comboBox_variable.count():
-            self.comboBox_variable.setCurrentIndex(idx)
+    def _show_frame(self, index):
+        if self.nunlim > 0:
+            self.set_tstep(index)
+            self.update_frame(True)
 
-    def next_v(self):
-        self._move_v(1)
+    def _stop_animation(self):
+        self.timer.stop()
+        self.pushButton_runBackward.setText("<")
+        self.pushButton_runForward.setText(">")
 
-    def prev_v(self):
-        self._move_v(-1)
+    def _set_animation_direction(self, direction):
+        self.anim_inc = direction
+        self.pushButton_runBackward.setText("||" if direction < 0 else "<")
+        self.pushButton_runForward.setText("||" if direction > 0 else ">")
+
+    def _toggle_animation(self, direction):
+        if self.nunlim <= 1:
+            self._stop_animation()
+        elif self.timer.isActive() and self.anim_inc == direction:
+            self._stop_animation()
+        else:
+            self._set_animation_direction(direction)
+            self.timer.start()
+
+    def _next_time_index(self, direction):
+        if self.nunlim <= 1:
+            return 0, direction, True
+        current = self._current_time_index()
+        target = current + direction
+        if 0 <= target < self.nunlim:
+            return target, direction, False
+        repeat = self.comboBox_repeat.currentText()
+        if repeat == "repeat":
+            return (0 if direction > 0 else self.nunlim - 1), direction, False
+        if repeat == "reflect":
+            direction *= -1
+            return current + direction, direction, False
+        return current, direction, True
 
     def selected_lat(self):
         if self._updating:
             return
-        self.checkBox_invLat.setChecked(False)
+        self.checkBox_invLatitude.setChecked(False)
         self.latd.set_specs(
-            dimension_specs(self, self.comboBox_lat.currentText(), "lat"))
+            dimension_specs(
+                self, self.comboBox_latitude.currentText(), "lat"))
         self.redraw()
 
     def selected_lon(self):
         if self._updating:
             return
-        self.checkBox_invLon.setChecked(False)
-        self.checkBox_shiftLon.setChecked(False)
+        self.checkBox_invLongitude.setChecked(False)
+        self.checkBox_shiftLongitude.setChecked(False)
         self.lond.set_specs(
-            dimension_specs(self, self.comboBox_lon.currentText(), "lon"))
+            dimension_specs(
+                self, self.comboBox_longitude.currentText(), "lon"))
         self.redraw()
 
     def selected_v(self):
@@ -321,15 +313,18 @@ class MapPanel(PlotPanel, Ui_MapPanel):
             return
         v = self.comboBox_variable.currentText()
         if not v:
+            self.iunlim = -1
+            self.nunlim = 0
+            self.vd.set_specs(empty_dimension_specs(self.maxdim))
+            self._sync_time_controls()
             self.redraw()
             return
+        self.vd.set_specs(dimension_specs(self, v, "var"))
         self.set_unlim(v)
-        self.horizontalSlider_timeStep.setRange(0, max(self.nunlim - 1, 0))
         self.set_tstep(0)
         vmin, vmax = self.get_vminmax()
-        self.lineEdit_vmin.setText(str(vmin))
-        self.lineEdit_vmax.setText(str(vmax))
-        self.vd.set_specs(dimension_specs(self, v, "var"))
+        self.lineEdit_min.setText(str(vmin))
+        self.lineEdit_max.setText(str(vmax))
         self.redraw()
 
     def spinned_lon(self):
@@ -339,10 +334,11 @@ class MapPanel(PlotPanel, Ui_MapPanel):
         self.checked()
 
     def spinned_v(self):
-        try:
-            self.set_tstep(int(self.vd.values()[self.iunlim]))
-        except (ValueError, IndexError):
-            pass
+        if self.iunlim >= 0:
+            try:
+                self.set_tstep(int(self.vd.values()[self.iunlim]))
+            except (ValueError, IndexError):
+                pass
         self.checked()
 
     def tstep_t(self, step):
@@ -352,10 +348,13 @@ class MapPanel(PlotPanel, Ui_MapPanel):
         self.update_frame(True)
 
     def _current_time_index(self):
+        if self.iunlim < 0 or self.nunlim <= 0:
+            return 0
         try:
-            return int(self.vd.values()[self.iunlim])
+            value = int(self.vd.values()[self.iunlim])
         except (ValueError, IndexError):
             return 0
+        return min(max(value, 0), self.nunlim - 1)
 
     def get_vminmax(self):
         v = self.comboBox_variable.currentText()
@@ -387,67 +386,102 @@ class MapPanel(PlotPanel, Ui_MapPanel):
         return vmin, vmax
 
     def set_tstep(self, it):
-        v = self.comboBox_variable.currentText()
-        if not v:
+        if self.iunlim < 0 or self.nunlim <= 0:
             return
-        gz, vz = vardim2var(v, self.groups)
-        if self.usex:
-            dunlim = self.dunlim
-            time = self.time
-        else:
-            dunlim = self.dunlim[gz]
-            time = self.time[gz]
-        try:
-            zz = selvar(self, vz)
-            dims = zz.dims if self.usex else zz.dimensions
-            has_unlim = dunlim in dims
-        except Exception:
-            has_unlim = False
-        if dunlim and has_unlim and self.iunlim >= 0:
-            self.vd.set_value(self.iunlim, it)
-            self.horizontalSlider_timeStep.blockSignals(True)
-            self.horizontalSlider_timeStep.setValue(int(it))
-            self.horizontalSlider_timeStep.blockSignals(False)
-            if self.usex:
-                self.label_timeValue.setText(str(time.values[it]))
-            else:
-                try:
-                    self.label_timeValue.setText(str(np.around(time[it], 4)))
-                except TypeError:
-                    self.label_timeValue.setText(str(time[it]))
+        it = min(max(int(it), 0), self.nunlim - 1)
+        self.vd.set_value(self.iunlim, it)
+        self.horizontalSlider_timeStep.blockSignals(True)
+        self.horizontalSlider_timeStep.setValue(it)
+        self.horizontalSlider_timeStep.blockSignals(False)
+        details = self._time_details(self.comboBox_variable.currentText())
+        if details is None:
+            return
+        _variable, time, _axis, _count = details
+        value = time.values[it] if self.usex else time[it]
+        if not self.usex:
+            try:
+                value = np.around(value, 4)
+            except TypeError:
+                pass
+        self.label_timeValue.setText(str(value))
 
     def set_unlim(self, v):
-        gz, vz = vardim2var(v, self.groups)
+        details = self._time_details(v)
+        if details is None:
+            self.iunlim = -1
+            self.nunlim = 0
+        else:
+            _variable, _time, self.iunlim, self.nunlim = details
+        self._sync_time_controls()
+
+    def _time_details(self, vardim):
+        if not vardim:
+            return None
+        group, variable_name = vardim2var(vardim, self.groups)
         if self.usex:
-            tname = self.tname
-            time = self.time
-            dunlim = self.dunlim
+            tname, tvar = self.tname, self.tvar
+            time, time_dim = self.time, self.dunlim
         else:
-            tname = self.tname[gz]
-            time = self.time[gz]
-            dunlim = self.dunlim[gz]
-        if vz == tname:
-            self.iunlim = 0
-            self.nunlim = time.size
-        else:
-            zz = selvar(self, vz)
-            dims = zz.dims if self.usex else zz.dimensions
-            self.iunlim = dims.index(dunlim) if dunlim and dunlim in dims else 0
-            self.nunlim = zz.shape[self.iunlim] if zz.ndim > 0 else 0
+            tname, tvar = self.tname[group], self.tvar[group]
+            time, time_dim = self.time[group], self.dunlim[group]
+        if time is None or not tvar:
+            return None
+        if variable_name == tname:
+            variable_name = tvar
+        try:
+            variable = selvar(self, variable_name)
+            time_variable = selvar(self, tvar)
+            dims = variable.dims if self.usex else variable.dimensions
+            time_dims = (time_variable.dims if self.usex
+                         else time_variable.dimensions)
+        except Exception:
+            return None
+        if time_dim not in time_dims:
+            time_dim = time_dims[0] if time_dims else None
+        if time_dim not in dims:
+            return None
+        axis = dims.index(time_dim)
+        count = min(int(variable.shape[axis]), int(time.size))
+        if count <= 0:
+            return None
+        return variable, time, axis, count
+
+    def _sync_time_controls(self):
+        self._stop_animation()
+        enabled = self.iunlim >= 0 and self.nunlim > 0
+        widgets = (
+            self.label_step,
+            self.horizontalSlider_timeStep,
+            self.pushButton_firstTime,
+            self.pushButton_prevTime,
+            self.pushButton_nextTime,
+            self.pushButton_lastTime,
+            self.label_repeat,
+            self.comboBox_repeat,
+        )
+        for widget in widgets:
+            widget.setEnabled(enabled)
+        can_run = enabled and self.nunlim > 1
+        self.pushButton_runBackward.setEnabled(can_run)
+        self.pushButton_runForward.setEnabled(can_run)
+        self.horizontalSlider_timeStep.blockSignals(True)
+        self.horizontalSlider_timeStep.setRange(0, max(self.nunlim - 1, 0))
+        self.horizontalSlider_timeStep.setValue(0)
+        self.horizontalSlider_timeStep.blockSignals(False)
+        if not enabled:
+            self.label_timeValue.clear()
 
     def redraw(self):
-        self.timer.stop()
-        self.pushButton_runForward.setText(">")
-        self.pushButton_runBackward.setText("<")
+        self._stop_animation()
         v = self.comboBox_variable.currentText()
         trans_v = self.checkBox_transVariable.isChecked()
-        vmin = float_or_none(self.lineEdit_vmin.text())
-        vmax = float_or_none(self.lineEdit_vmax.text())
-        x = self.comboBox_lon.currentText()
-        y = self.comboBox_lat.currentText()
-        inv_lon = self.checkBox_invLon.isChecked()
-        inv_lat = self.checkBox_invLat.isChecked()
-        shift_lon = self.checkBox_shiftLon.isChecked()
+        vmin = float_or_none(self.lineEdit_min.text())
+        vmax = float_or_none(self.lineEdit_max.text())
+        x = self.comboBox_longitude.currentText()
+        y = self.comboBox_latitude.currentText()
+        inv_lon = self.checkBox_invLongitude.isChecked()
+        inv_lat = self.checkBox_invLatitude.isChecked()
+        shift_lon = self.checkBox_shiftLongitude.isChecked()
         cmap = self.comboBox_cmap.currentText()
         if self.checkBox_revCmap.isChecked():
             cmap += "_r"
@@ -623,46 +657,26 @@ class MapPanel(PlotPanel, Ui_MapPanel):
 
     def update_frame(self, isframe=False):
         v = self.comboBox_variable.currentText()
-        if not v:
+        details = self._time_details(v)
+        if details is None or self.nunlim <= 0:
+            self._stop_animation()
             return
         trans_v = self.checkBox_transVariable.isChecked()
         mesh = self.checkBox_mesh.isChecked()
-        rep = self.comboBox_repeat.currentText()
-        shift_lon = self.checkBox_shiftLon.isChecked()
-        gz, vz = vardim2var(v, self.groups)
-        if self.usex:
-            if vz == self.tname:
-                vz = self.tvar
-        else:
-            if vz == self.tname[gz]:
-                vz = self.tvar[gz]
-        vv = selvar(self, vz)
+        shift_lon = self.checkBox_shiftLongitude.isChecked()
+        vv = details[0]
         it = self._current_time_index()
         if not isframe:
-            if self.anim_inc == 1 and it == self.nunlim - 1:
-                if rep == "repeat":
-                    it = 0
-                elif rep == "reflect":
-                    self.anim_inc = -1
-                    it += self.anim_inc
-                else:
-                    self.timer.stop()
-                    self.pushButton_runForward.setText(">")
-            elif self.anim_inc == -1 and it == 0:
-                if rep == "repeat":
-                    it = self.nunlim - 1
-                elif rep == "reflect":
-                    self.anim_inc = 1
-                    it += self.anim_inc
-                else:
-                    self.timer.stop()
-                    self.pushButton_runBackward.setText("<")
-            else:
-                it += self.anim_inc
+            it, direction, stop = self._next_time_index(self.anim_inc)
+            if stop:
+                self._stop_animation()
+                return
+            if direction != self.anim_inc:
+                self._set_animation_direction(direction)
         self.set_tstep(it)
         vv = self.slice_miss(self.vd, vv)
         if vv.ndim < 2:
-            self.timer.stop()
+            self._stop_animation()
             return
         if trans_v:
             vv = vv.T

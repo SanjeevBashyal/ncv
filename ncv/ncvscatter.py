@@ -8,8 +8,9 @@ from matplotlib.figure import Figure
 import numpy as np
 
 from .dimensions import dimension_specs, empty_dimension_specs
-from .ncvcommon import DimensionControlRow, PlotPanel, set_combo_items
-from .ncvutils import format_coord_scatter, parse_entry
+from .ncvcommon import DimensionControlRow, PlotPanel, parse_limits
+from .ncvcommon import set_combo_items
+from .ncvutils import format_coord_scatter
 from .ncvutils import selvar, set_axis_label, vardim2var
 from .pyui.ui_scatter_panel import Ui_ScatterPanel
 from .qt_compat import FigureCanvasQTAgg, NavigationToolbar2QT
@@ -33,6 +34,13 @@ def _minmax_ylim(ylim, ylim2):
             ymin = min(values)
             ymax = max(values)
     return ymin, ymax
+
+
+def _resolved_limits(limits, current):
+    return [
+        fallback if value is None else value
+        for value, fallback in zip(limits, current)
+    ]
 
 
 class ScatterPanel(PlotPanel, Ui_ScatterPanel):
@@ -201,8 +209,8 @@ class ScatterPanel(PlotPanel, Ui_ScatterPanel):
         if not y:
             return
         inv_y = self.checkBox_invY.isChecked()
-        ylim = parse_entry(self.lineEdit_ylim.text())
-        ylim2 = parse_entry(self.lineEdit_y2lim.text())
+        ylim = parse_limits(self.lineEdit_ylim.text())
+        ylim2 = parse_limits(self.lineEdit_y2lim.text())
         line_style = self.lineEdit_lineStyleY1.text()
         line_width = float(self.lineEdit_lineWidthY1.text())
         color = _maybe_color(self.lineEdit_lineColorY1.text())
@@ -238,10 +246,8 @@ class ScatterPanel(PlotPanel, Ui_ScatterPanel):
             self.axes.tick_params(axis="y", colors=plot_args["color"])
             self.axes.yaxis.label.set_color(plot_args["color"])
         self.axes.yaxis.set_label_text(ylabel)
-        if not isinstance(ylim, list):
-            ylim = self.axes.get_ylim()
-        if not isinstance(ylim2, list):
-            ylim2 = self.axes2.get_ylim()
+        ylim = _resolved_limits(ylim, self.axes.get_ylim())
+        ylim2 = _resolved_limits(ylim2, self.axes2.get_ylim())
         if same_y and y2:
             ymin, ymax = _minmax_ylim(ylim, ylim2)
             if ymin is not None and ymax is not None:
@@ -268,8 +274,8 @@ class ScatterPanel(PlotPanel, Ui_ScatterPanel):
         y = self.comboBox_y.currentText()
         inv_y2 = self.checkBox_invY2.isChecked()
         same_y = self.checkBox_sameYaxis.isChecked()
-        ylim = parse_entry(self.lineEdit_ylim.text())
-        ylim2 = parse_entry(self.lineEdit_y2lim.text())
+        ylim = parse_limits(self.lineEdit_ylim.text())
+        ylim2 = parse_limits(self.lineEdit_y2lim.text())
         plot_args = {
             "linestyle": self.lineEdit_lineStyleY2.text(),
             "linewidth": float(self.lineEdit_lineWidthY2.text()),
@@ -299,10 +305,8 @@ class ScatterPanel(PlotPanel, Ui_ScatterPanel):
             self.axes2.tick_params(axis="y", colors=plot_args["color"])
             self.axes2.yaxis.label.set_color(plot_args["color"])
         self.axes2.yaxis.set_label_text(ylabel)
-        if not isinstance(ylim, list):
-            ylim = self.axes.get_ylim()
-        if not isinstance(ylim2, list):
-            ylim2 = self.axes2.get_ylim()
+        ylim = _resolved_limits(ylim, self.axes.get_ylim())
+        ylim2 = _resolved_limits(ylim2, self.axes2.get_ylim())
         if same_y and y:
             ymin, ymax = _minmax_ylim(ylim, ylim2)
             if ymin is not None and ymax is not None:
@@ -325,9 +329,8 @@ class ScatterPanel(PlotPanel, Ui_ScatterPanel):
 
     def _apply_x_limits(self):
         inv_x = self.checkBox_invX.isChecked()
-        xlim = parse_entry(self.lineEdit_xlim.text())
-        if not isinstance(xlim, list):
-            xlim = self.axes.get_xlim()
+        xlim = _resolved_limits(
+            parse_limits(self.lineEdit_xlim.text()), self.axes.get_xlim())
         if inv_x and xlim[0] is not None:
             if xlim[0] < xlim[1]:
                 xlim = xlim[::-1]

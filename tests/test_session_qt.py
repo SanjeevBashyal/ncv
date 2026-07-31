@@ -11,9 +11,9 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
-def make_sample(path):
+def make_sample(path, *, fixed_time=False):
     ds = nc.Dataset(path, "w")
-    ds.createDimension("time", None)
+    ds.createDimension("time", 4 if fixed_time else None)
     ds.createDimension("lat", 3)
     ds.createDimension("lon", 4)
 
@@ -32,11 +32,13 @@ def make_sample(path):
     temp = ds.createVariable("temp", "f4", ("time", "lat", "lon"))
     temp.units = "K"
     temp.long_name = "temperature"
+    surface = ds.createVariable("surface", "f4", ("lat", "lon"))
 
-    time[:] = [0, 1]
+    time[:] = [0, 1, 2, 3]
     lat[:] = [-45, 0, 45]
     lon[:] = [0, 90, 180, 270]
-    temp[:] = np.arange(2 * 3 * 4).reshape(2, 3, 4)
+    temp[:] = np.arange(4 * 3 * 4).reshape(4, 3, 4)
+    surface[:] = np.arange(3 * 4).reshape(3, 4)
     ds.close()
 
 
@@ -160,7 +162,13 @@ def test_qt_window_smoke_with_generated_netcdf(tmp_path):
     assert isinstance(win.contour, ContourPanel)
     assert isinstance(win.matrix, MatrixPanel)
     assert win.scatter.comboBox_y.objectName() == "comboBox_y"
+    assert win.scatter.lineEdit_xlim.objectName() == "lineEdit_xlim"
     assert win.contour.comboBox_z.objectName() == "comboBox_z"
+    assert win.contour.checkBox_transposeZ.objectName() == "checkBox_transposeZ"
+    assert win.contour.lineEdit_zlim.objectName() == "lineEdit_zlim"
+
+    win.contour.lineEdit_zlim.setText("(1.5, 8)")
+    assert tuple(win.contour._z_limits()) == (1.5, 8.0)
 
     win.scatter.comboBox_y.setCurrentText(temp)
     win.scatter.selected_y()
@@ -175,14 +183,200 @@ def test_qt_window_smoke_with_generated_netcdf(tmp_path):
         assert isinstance(win.map, MapUnavailablePanel)
     else:
         assert isinstance(win.map, MapPanel)
+        assert win.map.lineEdit_min.objectName() == "lineEdit_min"
+        assert win.map.lineEdit_max.objectName() == "lineEdit_max"
+        assert win.map.comboBox_longitude.objectName() == "comboBox_longitude"
+        assert win.map.comboBox_latitude.objectName() == "comboBox_latitude"
+        assert (
+            win.map.checkBox_invLongitude.objectName()
+            == "checkBox_invLongitude"
+        )
+        assert win.map.checkBox_invLatitude.objectName() == "checkBox_invLatitude"
+        assert (
+            win.map.checkBox_shiftLongitude.objectName()
+            == "checkBox_shiftLongitude"
+        )
 
     win.close()
     app.processEvents()
 
 
+@pytest.fixture(scope="session")
+def qt_app():
+    from ncv.qt_compat import QtWidgets
+
+    return QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+
+def make_map_panel(path, qt_app, *, fixed_time=False):
+    from ncv.ncvmap import HAVE_CARTOPY, MapPanel
+    from ncv.qt_compat import QtWidgets
+    from ncv.session import NcvSession
+
+    if not HAVE_CARTOPY:
+        pytest.skip("Cartopy is not installed")
+
+    make_sample(path, fixed_time=fixed_time)
+    session = NcvSession()
+    session.open([str(path)])
+
+    class PanelWindow(QtWidgets.QWidget):
+        def open_file_dialog(self, _use_xarray):
+            pass
+
+        def create_secondary_window(self):
+            pass
+
+    window = PanelWindow()
+    panel = MapPanel(window, session)
+    for check_box in (
+        panel.checkBox_coast,
+        panel.checkBox_borders,
+        panel.checkBox_rivers,
+        panel.checkBox_lakes,
+    ):
+        blocked = check_box.blockSignals(True)
+        check_box.setChecked(False)
+        check_box.blockSignals(blocked)
+    return panel, window, session
+
+
+def select_map_variable(panel, session, name):
+    item = next(column for column in session.cols if column.startswith(f"{name} "))
+    panel.comboBox_variable.setCurrentText(item)
+    assert panel.comboBox_variable.currentText() == item
+
+
+def assert_map_frame(panel, session, index):
+    assert panel.iunlim >= 0
+    assert panel.vd.selectors[panel.iunlim].currentText() == str(index)
+    assert panel.horizontalSlider_timeStep.value() == index
+    assert panel.label_timeValue.text() == str(session.time[0][index])
+
+
+def test_map_time_navigation_and_animation(tmp_path, qt_app):
+    panel, window, session = make_map_panel(
+        tmp_path / "map-time.nc", qt_app)
+    try:
+        select_map_variable(panel, session, "temp")
+        assert panel.nunlim == 4
+        assert panel.horizontalSlider_timeStep.maximum() == 3
+        assert_map_frame(panel, session, 0)
+
+        panel.pushButton_lastTime.click()
+        assert_map_frame(panel, session, 3)
+        panel.pushButton_prevTime.click()
+        assert_map_frame(panel, session, 2)
+        panel.pushButton_firstTime.click()
+        assert_map_frame(panel, session, 0)
+        panel.pushButton_nextTime.click()
+        assert_map_frame(panel, session, 1)
+        panel.horizontalSlider_timeStep.setValue(2)
+        assert_map_frame(panel, session, 2)
+
+        # A normal timer tick must not be stopped by dimension-selector signals.
+        panel.horizontalSlider_timeStep.setValue(0)
+        panel.pushButton_runForward.click()
+        assert panel.timer.isActive()
+        assert panel.pushButton_runForward.text() == "||"
+        assert panel.pushButton_runBackward.text() == "<"
+        panel.update_frame()
+        assert panel.timer.isActive()
+        assert_map_frame(panel, session, 1)
+        panel.pushButton_runForward.click()
+        assert not panel.timer.isActive()
+        assert panel.pushButton_runForward.text() == ">"
+        assert panel.pushButton_runBackward.text() == "<"
+
+        panel.comboBox_repeat.setCurrentText("once")
+        panel.horizontalSlider_timeStep.setValue(3)
+        panel.pushButton_runForward.click()
+        panel.update_frame()
+        assert_map_frame(panel, session, 3)
+        assert not panel.timer.isActive()
+        assert panel.pushButton_runForward.text() == ">"
+        assert panel.pushButton_runBackward.text() == "<"
+
+        panel.comboBox_repeat.setCurrentText("repeat")
+        panel.pushButton_runForward.click()
+        panel.update_frame()
+        assert_map_frame(panel, session, 0)
+        assert panel.timer.isActive()
+        panel.pushButton_runForward.click()
+        assert not panel.timer.isActive()
+
+        panel.comboBox_repeat.setCurrentText("reflect")
+        panel.horizontalSlider_timeStep.setValue(3)
+        panel.pushButton_runForward.click()
+        panel.update_frame()
+        assert_map_frame(panel, session, 2)
+        assert panel.timer.isActive()
+        assert panel.anim_inc == -1
+        assert panel.pushButton_runForward.text() == ">"
+        assert panel.pushButton_runBackward.text() == "||"
+
+        # The opposite run button switches direction; the active one pauses.
+        panel.pushButton_runForward.click()
+        assert panel.timer.isActive()
+        assert panel.anim_inc == 1
+        assert panel.pushButton_runForward.text() == "||"
+        assert panel.pushButton_runBackward.text() == "<"
+        panel.pushButton_runForward.click()
+        assert not panel.timer.isActive()
+        assert panel.pushButton_runForward.text() == ">"
+        assert panel.pushButton_runBackward.text() == "<"
+    finally:
+        panel.timer.stop()
+        panel.close()
+        window.close()
+        session.close()
+
+
+def test_map_fixed_time_and_static_variable_controls(tmp_path, qt_app):
+    panel, window, session = make_map_panel(
+        tmp_path / "map-fixed-time.nc", qt_app, fixed_time=True)
+    try:
+        assert session.dunlim[0] == ""
+
+        select_map_variable(panel, session, "temp")
+        assert panel.iunlim == 0
+        assert panel.nunlim == 4
+        assert panel.horizontalSlider_timeStep.isEnabled()
+        assert panel.pushButton_runForward.isEnabled()
+        panel.pushButton_nextTime.click()
+        assert_map_frame(panel, session, 1)
+
+        # The displayed synthetic datetime item resolves to the physical time
+        # variable even when the time dimension is fixed-size.
+        select_map_variable(panel, session, "datetime")
+        assert panel.iunlim == 0
+        assert panel.nunlim == 4
+        assert panel.horizontalSlider_timeStep.maximum() == 3
+
+        select_map_variable(panel, session, "surface")
+        assert panel.iunlim == -1
+        assert panel.nunlim == 0
+        assert panel.horizontalSlider_timeStep.maximum() == 0
+        assert not any(widget.isEnabled() for widget in (
+            panel.horizontalSlider_timeStep,
+            panel.pushButton_firstTime,
+            panel.pushButton_prevTime,
+            panel.pushButton_runBackward,
+            panel.pushButton_runForward,
+            panel.pushButton_nextTime,
+            panel.pushButton_lastTime,
+            panel.comboBox_repeat,
+        ))
+    finally:
+        panel.timer.stop()
+        panel.close()
+        window.close()
+        session.close()
+
+
 def test_qt_designer_forms_compile():
     from PyQt5 import uic
-    from ncv.pyui.ui_contour_panel import Ui_ContourPanel
+    from ncv.pyui.ui_contour_panel import Ui_widget_ContourPanel
     from ncv.pyui.ui_main_window import Ui_NcvMainWindow
     from ncv.pyui.ui_map_panel import Ui_MapPanel
     from ncv.pyui.ui_map_unavailable import Ui_MapUnavailablePanel
@@ -206,7 +400,7 @@ def test_qt_designer_forms_compile():
     assert all(ui_class is not None for ui_class in (
         Ui_NcvMainWindow,
         Ui_ScatterPanel,
-        Ui_ContourPanel,
+        Ui_widget_ContourPanel,
         Ui_MapPanel,
         Ui_MapUnavailablePanel,
     ))
