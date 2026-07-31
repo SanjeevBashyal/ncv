@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>NcvMainWindow</class>
+ <widget class="QMainWindow" name="NcvMainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1000</width>
+    <height>800</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>ncv</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="centralLayout">
+    <property name="leftMargin">
+     <number>0</number>
+    </property>
+    <property name="topMargin">
+     <number>0</number>
+    </property>
+    <property name="rightMargin">
+     <number>0</number>
+    </property>
+    <property name="bottomMargin">
+     <number>0</number>
+    </property>
+    <item>
+     <widget class="QTabWidget" name="tabWidget_main">
+      <property name="currentIndex">
+       <number>0</number>
+      </property>
+      <widget class="QWidget" name="tab_scatterPlot">
+       <attribute name="title">
+        <string>Scatter/Line</string>
+       </attribute>
+      </widget>
+      <widget class="QWidget" name="tab_contourPlot">
+       <attribute name="title">
+        <string>Contour</string>
+       </attribute>
+      </widget>
+      <widget class="QWidget" name="tab_mapPlot">
+       <attribute name="title">
+        <string>Map</string>
+       </attribute>
+      </widget>
+      <widget class="QWidget" name="tab_matrixDisplay">
+       <attribute name="title">
+        <string>Matrix</string>
+       </attribute>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

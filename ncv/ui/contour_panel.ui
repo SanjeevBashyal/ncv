@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ContourPanel</class>
+ <widget class="QWidget" name="ContourPanel">
+  <property name="geometry">
+   <rect><x>0</x><y>0</y><width>1000</width><height>760</height></rect>
+  </property>
+  <layout class="QVBoxLayout" name="mainLayout">
+   <item>
+    <layout class="QHBoxLayout" name="fileControlsLayout">
+     <item><widget class="QPushButton" name="openFileButton"><property name="toolTip"><string>Open new NetCDF file(s)</string></property><property name="text"><string>Open File</string></property></widget></item>
+     <item><widget class="QPushButton" name="openXarrayButton"><property name="toolTip"><string>Open new NetCDF file(s) with xarray</string></property><property name="text"><string>Open xarray</string></property></widget></item>
+     <item><widget class="QPushButton" name="newWindowButton"><property name="toolTip"><string>Open a secondary ncv window</string></property><property name="text"><string>New Window</string></property></widget></item>
+     <item><spacer name="fileControlsSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QWidget" name="plotHost" native="true">
+     <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Expanding"><horstretch>0</horstretch><verstretch>1</verstretch></sizepolicy></property>
+     <property name="minimumSize"><size><width>0</width><height>260</height></size></property>
+     <layout class="QVBoxLayout" name="plotLayout">
+      <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <layout class="QVBoxLayout" name="controlsLayout">
+     <item>
+      <layout class="QHBoxLayout" name="zControlsLayout">
+       <item><widget class="QLabel" name="zLabel"><property name="text"><string>z</string></property></widget></item>
+       <item><widget class="QPushButton" name="prevZButton"><property name="minimumSize"><size><width>34</width><height>0</height></size></property><property name="maximumSize"><size><width>34</width><height>16777215</height></size></property><property name="text"><string>&lt;</string></property></widget></item>
+       <item><widget class="QPushButton" name="nextZButton"><property name="minimumSize"><size><width>34</width><height>0</height></size></property><property name="maximumSize"><size><width>34</width><height>16777215</height></size></property><property name="text"><string>&gt;</string></property></widget></item>
+       <item><widget class="QComboBox" name="z"><property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="toolTip"><string>Choose the plotted variable</string></property><property name="sizeAdjustPolicy"><enum>QComboBox::AdjustToContents</enum></property></widget></item>
+       <item><widget class="QCheckBox" name="trans_z"><property name="toolTip"><string>Transpose the matrix</string></property><property name="text"><string>transpose z</string></property></widget></item>
+       <item><widget class="QLabel" name="zminLabel"><property name="text"><string>zmin</string></property></widget></item>
+       <item><widget class="QLineEdit" name="zmin"><property name="maximumSize"><size><width>110</width><height>16777215</height></size></property><property name="text"><string>None</string></property></widget></item>
+       <item><widget class="QLabel" name="zmaxLabel"><property name="text"><string>zmax</string></property></widget></item>
+       <item><widget class="QLineEdit" name="zmax"><property name="maximumSize"><size><width>110</width><height>16777215</height></size></property><property name="text"><string>None</string></property></widget></item>
+       <item><spacer name="zControlsSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+      </layout>
+     </item>
+     <item><widget class="QWidget" name="zDimensionsHost" native="true"><layout class="QVBoxLayout" name="zDimensionsLayout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property></layout></widget></item>
+     <item>
+      <layout class="QHBoxLayout" name="xyControlsLayout">
+       <item><widget class="QLabel" name="xLabel"><property name="text"><string>x</string></property></widget></item>
+       <item><widget class="QComboBox" name="x"><property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="toolTip"><string>Choose the x-axis variable. Empty uses the index.</string></property><property name="sizeAdjustPolicy"><enum>QComboBox::AdjustToContents</enum></property></widget></item>
+       <item><widget class="QCheckBox" name="inv_x"><property name="toolTip"><string>Invert the x-axis</string></property><property name="text"><string>invert x</string></property></widget></item>
+       <item><spacer name="xyGap"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Fixed</enum></property><property name="sizeHint" stdset="0"><size><width>16</width><height>20</height></size></property></spacer></item>
+       <item><widget class="QLabel" name="yLabel"><property name="text"><string>y</string></property></widget></item>
+       <item><widget class="QComboBox" name="y"><property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="toolTip"><string>Choose the y-axis variable. Empty uses the index.</string></property><property name="sizeAdjustPolicy"><enum>QComboBox::AdjustToContents</enum></property></widget></item>
+       <item><widget class="QCheckBox" name="inv_y"><property name="toolTip"><string>Invert the y-axis</string></property><property name="text"><string>invert y</string></property></widget></item>
+       <item><spacer name="xyControlsSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+      </layout>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="xyDimensionsRow">
+       <item><widget class="QWidget" name="xDimensionsHost" native="true"><layout class="QVBoxLayout" name="xDimensionsLayout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property></layout></widget></item>
+       <item><spacer name="dimensionsGap"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Fixed</enum></property><property name="sizeHint" stdset="0"><size><width>16</width><height>20</height></size></property></spacer></item>
+       <item><widget class="QWidget" name="yDimensionsHost" native="true"><layout class="QVBoxLayout" name="yDimensionsLayout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property></layout></widget></item>
+      </layout>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="optionsLayout">
+       <item><widget class="QLabel" name="cmapLabel"><property name="text"><string>cmap</string></property></widget></item>
+       <item><widget class="QComboBox" name="cmap"><property name="toolTip"><string>Choose the colormap</string></property><property name="sizeAdjustPolicy"><enum>QComboBox::AdjustToContents</enum></property></widget></item>
+       <item><widget class="QCheckBox" name="rev_cmap"><property name="text"><string>reverse cmap</string></property></widget></item>
+       <item><widget class="QCheckBox" name="mesh"><property name="text"><string>mesh</string></property><property name="checked"><bool>true</bool></property></widget></item>
+       <item><widget class="QCheckBox" name="grid"><property name="text"><string>grid</string></property></widget></item>
+       <item><spacer name="optionsSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+       <item><widget class="QPushButton" name="quitButton"><property name="text"><string>Quit</string></property></widget></item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -1,0 +1,966 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ScatterPanel</class>
+ <widget class="QWidget" name="ScatterPanel">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1000</width>
+    <height>760</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="mainLayout">
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayout_fileControls">
+     <item>
+      <widget class="QPushButton" name="pushButton_openFile">
+       <property name="toolTip">
+        <string>Open new NetCDF file(s)</string>
+       </property>
+       <property name="text">
+        <string>Open File</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButton_openXarray">
+       <property name="toolTip">
+        <string>Open new NetCDF file(s) with xarray</string>
+       </property>
+       <property name="text">
+        <string>Open xarray</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButton_newWindow">
+       <property name="toolTip">
+        <string>Open a secondary ncv window</string>
+       </property>
+       <property name="text">
+        <string>New Window</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacer_fileControls">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QWidget" name="widget_plotHost" native="true">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+       <horstretch>0</horstretch>
+       <verstretch>1</verstretch>
+      </sizepolicy>
+     </property>
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>220</height>
+      </size>
+     </property>
+     <layout class="QVBoxLayout" name="plotLayout">
+      <property name="leftMargin">
+       <number>0</number>
+      </property>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_inputs">
+     <property name="title">
+      <string>Inputs</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout">
+      <property name="topMargin">
+       <number>3</number>
+      </property>
+      <property name="bottomMargin">
+       <number>3</number>
+      </property>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_xControls">
+        <item>
+         <widget class="QLabel" name="label_x">
+          <property name="text">
+           <string>X - var</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="comboBox_x">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+            <horstretch>1</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="toolTip">
+           <string>Choose the x-axis variable. Empty uses the index.</string>
+          </property>
+          <property name="sizeAdjustPolicy">
+           <enum>QComboBox::AdjustToContents</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkBox_invX">
+          <property name="toolTip">
+           <string>Invert the x-axis</string>
+          </property>
+          <property name="text">
+           <string>invert X</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="horizontalSpacer_Xdim">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QWidget" name="widget_xDimensionsHost" native="true">
+          <property name="minimumSize">
+           <size>
+            <width>300</width>
+            <height>0</height>
+           </size>
+          </property>
+          <layout class="QVBoxLayout" name="xDimensionsLayout">
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_xlim">
+          <property name="toolTip">
+           <string>Limit X dimension extents</string>
+          </property>
+          <property name="text">
+           <string>xlim</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_xlim">
+          <property name="maximumSize">
+           <size>
+            <width>110</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;min, max&lt;br/&gt;Set to None for free scaling.&lt;br/&gt;Datetime must be in iso8601 format, e.g. 2025-11-23&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+          </property>
+          <property name="text">
+           <string>None</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout">
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <item>
+         <widget class="QLabel" name="lavel_y">
+          <property name="text">
+           <string>Y - var</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="comboBox_y">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+            <horstretch>1</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="toolTip">
+           <string>Choose the y-axis variable</string>
+          </property>
+          <property name="sizeAdjustPolicy">
+           <enum>QComboBox::AdjustToContents</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkBox_invY">
+          <property name="toolTip">
+           <string>Invert the y-axis</string>
+          </property>
+          <property name="text">
+           <string>invert Y</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="horizontalSpacer_y">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QWidget" name="widget_yDimensionsHost" native="true">
+          <property name="minimumSize">
+           <size>
+            <width>300</width>
+            <height>0</height>
+           </size>
+          </property>
+          <layout class="QVBoxLayout" name="yDimensionsLayout">
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_ylim">
+          <property name="toolTip">
+           <string>Limit Y dimension extents</string>
+          </property>
+          <property name="text">
+           <string>ylim</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_ylim">
+          <property name="maximumSize">
+           <size>
+            <width>110</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;min, max&lt;br/&gt;Set to None for free scaling.&lt;br/&gt;Datetime must be in iso8601 format, e.g. 2025-11-23&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+          </property>
+          <property name="text">
+           <string>None</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="y2ControlsLayout">
+        <item>
+         <widget class="QLabel" name="label_y2">
+          <property name="text">
+           <string>Y2 - var</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="comboBox_y2">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+            <horstretch>1</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="toolTip">
+           <string>Choose the variable for the right-hand y-axis</string>
+          </property>
+          <property name="sizeAdjustPolicy">
+           <enum>QComboBox::AdjustToContents</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkBox_invY2">
+          <property name="toolTip">
+           <string>Invert the right-hand y-axis</string>
+          </property>
+          <property name="text">
+           <string>invert y2</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QCheckBox" name="checkBox_sameYaxis">
+          <property name="toolTip">
+           <string>Use the same limits for both y-axes</string>
+          </property>
+          <property name="text">
+           <string>same y-axes</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="horizontalSpacer_y2">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QWidget" name="widget_y2DimensionsHost" native="true">
+          <property name="minimumSize">
+           <size>
+            <width>300</width>
+            <height>0</height>
+           </size>
+          </property>
+          <layout class="QVBoxLayout" name="y2DimensionsLayout">
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_y2lim">
+          <property name="toolTip">
+           <string>Limit Y2 dimension extents</string>
+          </property>
+          <property name="text">
+           <string>y2lim</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_y2lim">
+          <property name="maximumSize">
+           <size>
+            <width>110</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;min, max&lt;br/&gt;Set to None for free scaling.&lt;br/&gt;Datetime must be in iso8601 format, e.g. 2025-11-23&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+          </property>
+          <property name="text">
+           <string>None</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_displaySettings">
+     <property name="title">
+      <string>Display Settings</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_2">
+      <property name="leftMargin">
+       <number>9</number>
+      </property>
+      <property name="topMargin">
+       <number>3</number>
+      </property>
+      <property name="bottomMargin">
+       <number>3</number>
+      </property>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_yStyle">
+        <item>
+         <widget class="QLabel" name="label_y1Style">
+          <property name="text">
+           <string>X-Y   :</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_lineStyleY1">
+          <property name="toolTip">
+           <string>Line style</string>
+          </property>
+          <property name="text">
+           <string>ls</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_lineStyleY1">
+          <property name="maximumSize">
+           <size>
+            <width>55</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>Input line style: -, --, -., :, or None</string>
+          </property>
+          <property name="text">
+           <string>-</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_lineWidthY1">
+          <property name="toolTip">
+           <string>Line width</string>
+          </property>
+          <property name="text">
+           <string>lw</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_lineWidthY1">
+          <property name="maximumSize">
+           <size>
+            <width>40</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>Input line width</string>
+          </property>
+          <property name="text">
+           <string>1</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_lineColorY1">
+          <property name="toolTip">
+           <string>Color</string>
+          </property>
+          <property name="text">
+           <string>c</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_lineColorY1">
+          <property name="maximumSize">
+           <size>
+            <width>80</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Line color:&lt;br/&gt;- color names: red, green, blue, yellow, ...&lt;br/&gt;- single characters: b (blue), g (green), r (red), c (cyan), m (magenta), y (yellow), k (black), w (white)&lt;br/&gt;- hex RGB: #rrggbb such such as #ff9300 (orange)&lt;br/&gt;- gray level: float between 0 and 1&lt;br/&gt;- RGA (red, green, blue) or RGBA (red, green, blue, alpha) tuples between 0 and 1, e.g. (1, 0.57, 0) for orange&lt;br/&gt;- name from xkcd color survey, e.g. xkcd:sky blue&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+          </property>
+          <property name="text">
+           <string>#1f77b4</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_markerStyleY1">
+          <property name="toolTip">
+           <string>Point Marker</string>
+          </property>
+          <property name="text">
+           <string>marker</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_markerStyleY1">
+          <property name="maximumSize">
+           <size>
+            <width>60</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Marker symbol:&lt;/p&gt;&lt;p&gt;. (point), &amp;quot;,&amp;quot; (pixel), o (circle), &lt;br/&gt;v (triangle_down), ^ (triangle_up),&lt;br/&gt;&amp;lt; (triangle_left), &amp;gt; (triangle_right),&lt;br/&gt;1 (tri_down), 2 (tri_up), 3 (tri_left), 4 (tri_right), 8 (octagon),&lt;br/&gt;s (square), p (pentagon), P (plus (filled)),&lt;br/&gt;* (star), h (hexagon1), H (hexagon2),&lt;br/&gt;+ (plus), x (x), X (x (filled)),&lt;br/&gt;D (diamond), d (thin_diamond),&lt;br/&gt;| (vline), _ (hline), or None&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+          </property>
+          <property name="text">
+           <string>None</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_markerSizeY1">
+          <property name="toolTip">
+           <string>Marker size</string>
+          </property>
+          <property name="text">
+           <string>ms</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_markerSizeY1">
+          <property name="maximumSize">
+           <size>
+            <width>40</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>Input marker size</string>
+          </property>
+          <property name="text">
+           <string>1</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_markerFillColorY1">
+          <property name="toolTip">
+           <string>Marker fill color</string>
+          </property>
+          <property name="text">
+           <string>mfc</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_markerFillColorY1">
+          <property name="maximumSize">
+           <size>
+            <width>80</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Marker fill color:&lt;br/&gt;- color names: red, green, blue, yellow, ...&lt;br/&gt;- single characters: b (blue), g (green), r (red), c (cyan), m (magenta), y (yellow), k (black), w (white)&lt;br/&gt;- hex RGB: #rrggbb such such as #ff9300 (orange)&lt;br/&gt;- gray level: float between 0 and 1&lt;br/&gt;- RGA (red, green, blue) or RGBA (red, green, blue, alpha) tuples between 0 and 1, e.g. (1, 0.57, 0) for orange&lt;br/&gt;- name from xkcd color survey, e.g. xkcd:sky blue&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+          </property>
+          <property name="text">
+           <string>#1f77b4</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_markerEdgeColorY1">
+          <property name="text">
+           <string>mec</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_markerEdgeColorY1">
+          <property name="maximumSize">
+           <size>
+            <width>80</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Marker edge color:&lt;br/&gt;- color names: red, green, blue, yellow, ...&lt;br/&gt;- single characters: b (blue), g (green), r (red), c (cyan), m (magenta), y (yellow), k (black), w (white)&lt;br/&gt;- hex RGB: #rrggbb such such as #ff9300 (orange)&lt;br/&gt;- gray level: float between 0 and 1&lt;br/&gt;- RGA (red, green, blue) or RGBA (red, green, blue, alpha) tuples between 0 and 1, e.g. (1, 0.57, 0) for orange&lt;br/&gt;- name from xkcd color survey, e.g. xkcd:sky blue&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+          </property>
+          <property name="text">
+           <string>#1f77b4</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_markerEdgeWidthY1">
+          <property name="toolTip">
+           <string>Marker edge width</string>
+          </property>
+          <property name="text">
+           <string>mew</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_markerEdgeWidthY1">
+          <property name="maximumSize">
+           <size>
+            <width>40</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>Input marker edge width</string>
+          </property>
+          <property name="text">
+           <string>1</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="horizontalSpacer_y1Style">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_y2Style">
+        <item>
+         <widget class="QLabel" name="label_y2Style">
+          <property name="text">
+           <string>X-Y2 :</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_lineStyleY2">
+          <property name="toolTip">
+           <string>Line style</string>
+          </property>
+          <property name="text">
+           <string>ls</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_lineStyleY2">
+          <property name="maximumSize">
+           <size>
+            <width>55</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>Input line style: -, --, -., :, or None</string>
+          </property>
+          <property name="text">
+           <string>-</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_lineWidthY2">
+          <property name="toolTip">
+           <string>Line width</string>
+          </property>
+          <property name="text">
+           <string>lw</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_lineWidthY2">
+          <property name="maximumSize">
+           <size>
+            <width>40</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>Input line width</string>
+          </property>
+          <property name="text">
+           <string>1</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_lineColorY2">
+          <property name="toolTip">
+           <string>Color</string>
+          </property>
+          <property name="text">
+           <string>c</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_lineColorY2">
+          <property name="maximumSize">
+           <size>
+            <width>80</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Line color:&lt;br/&gt;- color names: red, green, blue, yellow, ...&lt;br/&gt;- single characters: b (blue), g (green), r (red), c (cyan), m (magenta), y (yellow), k (black), w (white)&lt;br/&gt;- hex RGB: #rrggbb such such as #ff9300 (orange)&lt;br/&gt;- gray level: float between 0 and 1&lt;br/&gt;- RGA (red, green, blue) or RGBA (red, green, blue, alpha) tuples between 0 and 1, e.g. (1, 0.57, 0) for orange&lt;br/&gt;- name from xkcd color survey, e.g. xkcd:sky blue&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+          </property>
+          <property name="text">
+           <string>#d62728</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_markerStyleY2">
+          <property name="toolTip">
+           <string>Point Marker</string>
+          </property>
+          <property name="text">
+           <string>marker</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_markerStyleY2">
+          <property name="maximumSize">
+           <size>
+            <width>60</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Marker symbol:&lt;/p&gt;&lt;p&gt;. (point), &amp;quot;,&amp;quot; (pixel), o (circle), &lt;br/&gt;v (triangle_down), ^ (triangle_up),&lt;br/&gt;&amp;lt; (triangle_left), &amp;gt; (triangle_right),&lt;br/&gt;1 (tri_down), 2 (tri_up), 3 (tri_left), 4 (tri_right), 8 (octagon),&lt;br/&gt;s (square), p (pentagon), P (plus (filled)),&lt;br/&gt;* (star), h (hexagon1), H (hexagon2),&lt;br/&gt;+ (plus), x (x), X (x (filled)),&lt;br/&gt;D (diamond), d (thin_diamond),&lt;br/&gt;| (vline), _ (hline), or None&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+          </property>
+          <property name="text">
+           <string>None</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_markerSizeY2">
+          <property name="toolTip">
+           <string>Marker size</string>
+          </property>
+          <property name="text">
+           <string>ms</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_markerSizeY2">
+          <property name="maximumSize">
+           <size>
+            <width>40</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>Input marker size</string>
+          </property>
+          <property name="text">
+           <string>1</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_markerFillColorY2">
+          <property name="toolTip">
+           <string>Marker fill color</string>
+          </property>
+          <property name="text">
+           <string>mfc</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_markerFillColorY2">
+          <property name="maximumSize">
+           <size>
+            <width>80</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Marker fill color:&lt;br/&gt;- color names: red, green, blue, yellow, ...&lt;br/&gt;- single characters: b (blue), g (green), r (red), c (cyan), m (magenta), y (yellow), k (black), w (white)&lt;br/&gt;- hex RGB: #rrggbb such such as #ff9300 (orange)&lt;br/&gt;- gray level: float between 0 and 1&lt;br/&gt;- RGA (red, green, blue) or RGBA (red, green, blue, alpha) tuples between 0 and 1, e.g. (1, 0.57, 0) for orange&lt;br/&gt;- name from xkcd color survey, e.g. xkcd:sky blue&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+          </property>
+          <property name="text">
+           <string>#d62728</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_markerEdgeColorY2">
+          <property name="text">
+           <string>mec</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_markerEdgeColorY2">
+          <property name="maximumSize">
+           <size>
+            <width>80</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Marker edge color:&lt;br/&gt;- color names: red, green, blue, yellow, ...&lt;br/&gt;- single characters: b (blue), g (green), r (red), c (cyan), m (magenta), y (yellow), k (black), w (white)&lt;br/&gt;- hex RGB: #rrggbb such such as #ff9300 (orange)&lt;br/&gt;- gray level: float between 0 and 1&lt;br/&gt;- RGA (red, green, blue) or RGBA (red, green, blue, alpha) tuples between 0 and 1, e.g. (1, 0.57, 0) for orange&lt;br/&gt;- name from xkcd color survey, e.g. xkcd:sky blue&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+          </property>
+          <property name="text">
+           <string>#d62728</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_markerEdgeWidthY2">
+          <property name="toolTip">
+           <string>Marker edge width</string>
+          </property>
+          <property name="text">
+           <string>mew</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="lineEdit_markerEdgeWidthY2">
+          <property name="maximumSize">
+           <size>
+            <width>40</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>Input marker edge width</string>
+          </property>
+          <property name="text">
+           <string>1</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="horizontalSpacer_y2Style">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_redraw">
+        <item>
+         <spacer name="horizontalSpacer_redrawLeft">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QPushButton" name="pushButton_redraw">
+          <property name="toolTip">
+           <string>Redraw with new graphical settings</string>
+          </property>
+          <property name="text">
+           <string>Redraw</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="horizontalSpacer_redrawRight">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayout_Quit">
+     <property name="topMargin">
+      <number>5</number>
+     </property>
+     <item>
+      <spacer name="horizontalSpacer_Quit">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="pushButton_quit">
+       <property name="text">
+        <string>Quit</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

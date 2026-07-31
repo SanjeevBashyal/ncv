@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import subprocess
 import sys
 
@@ -102,6 +103,13 @@ def test_qt_window_smoke_with_generated_netcdf(tmp_path):
     win = NcvMainWindow(session)
     temp = next(col for col in session.cols if col.startswith("temp "))
 
+    assert win.objectName() == "NcvMainWindow"
+    assert win.tabs.count() == 3
+    assert win.tabs.widget(0) is win.scatter
+    assert win.tabs.widget(1) is win.contour
+    assert win.scatter.y.objectName() == "y"
+    assert win.contour.z.objectName() == "z"
+
     win.scatter.y.setCurrentText(temp)
     win.scatter.selected_y()
     win.scatter.redraw()
@@ -118,6 +126,25 @@ def test_qt_window_smoke_with_generated_netcdf(tmp_path):
 
     win.close()
     app.processEvents()
+
+
+def test_qt_designer_forms_compile():
+    from PyQt5 import uic
+
+    ui_dir = Path(__file__).parents[1] / "ncv" / "ui"
+    forms = {
+        "main_window.ui",
+        "scatter_panel.ui",
+        "contour_panel.ui",
+        "map_panel.ui",
+        "map_unavailable.ui",
+    }
+
+    assert {path.name for path in ui_dir.glob("*.ui")} == forms
+    for form in forms:
+        form_class, base_class = uic.loadUiType(str(ui_dir / form))
+        assert form_class is not None
+        assert base_class is not None
 
 
 def test_cli_help_uses_ncv_entrypoint():

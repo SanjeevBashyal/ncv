@@ -42,12 +42,20 @@ from .ncvutils import add_cyclic, format_coord_contour, format_coord_map
 from .ncvutils import format_coord_scatter, get_slice_values, parse_entry
 from .ncvutils import selvar, set_axis_label, set_miss, vardim2var
 from .qt_compat import FigureCanvasQTAgg, NavigationToolbar2QT
-from .qt_compat import QtCore, QtGui, QtWidgets, require_qt
+from .qt_compat import QtCore, QtGui, QtWidgets, require_qt, uic
 from .session import HAVE_XARRAY, NcvSession, normalize_files
 
 
 def _resource_path(*parts: str) -> str:
     return str(Path(__file__).resolve().parent.joinpath(*parts))
+
+
+def _load_designer_ui(filename: str, instance):
+    """Load a packaged Qt Designer form into an existing widget instance."""
+    path = _resource_path("ui", filename)
+    if not os.path.isfile(path):
+        raise RuntimeError(f"Required ncv Qt Designer form is missing: {path}")
+    return uic.loadUi(path, instance)
 
 
 def _window_geometry() -> tuple[int, int, int, int]:
@@ -182,51 +190,19 @@ class PlotPanel(QtWidgets.QWidget):
     def columns(self):
         return [""] + list(self.session.cols)
 
-    def add_file_controls(self, layout):
-        open_file = QtWidgets.QPushButton("Open File")
-        open_file.setToolTip("Open new netcdf file(s)")
-        open_file.clicked.connect(lambda: self.window.open_file_dialog(False))
-        layout.addWidget(open_file)
-
+    def connect_file_controls(self):
+        """Connect the common file buttons supplied by a Designer form."""
+        self.openFileButton.clicked.connect(
+            lambda: self.window.open_file_dialog(False))
+        self.openXarrayButton.setVisible(HAVE_XARRAY)
         if HAVE_XARRAY:
-            open_xarray = QtWidgets.QPushButton("Open xarray")
-            open_xarray.setToolTip("Open new netcdf file(s) with xarray")
-            open_xarray.clicked.connect(lambda: self.window.open_file_dialog(True))
-            layout.addWidget(open_xarray)
+            self.openXarrayButton.clicked.connect(
+                lambda: self.window.open_file_dialog(True))
+        self.newWindowButton.clicked.connect(self.window.create_secondary_window)
 
-        new_window = QtWidgets.QPushButton("New Window")
-        new_window.setToolTip("Open secondary ncv window")
-        new_window.clicked.connect(self.window.create_secondary_window)
-        layout.addWidget(new_window)
-        layout.addStretch(1)
-
-    def make_combo(self, values=None, callback=None, tooltip=""):
-        combo = QtWidgets.QComboBox()
-        combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
-        combo.addItems([str(value) for value in (values or [])])
-        combo.setToolTip(tooltip)
-        if callback is not None:
-            combo.currentIndexChanged.connect(callback)
-        return combo
-
-    def make_entry(self, text="", callback=None, width=70, tooltip=""):
-        entry = QtWidgets.QLineEdit(str(text))
-        entry.setFixedWidth(width)
-        entry.setToolTip(tooltip)
-        if callback is not None:
-            entry.editingFinished.connect(callback)
-        return entry
-
-    def make_check(self, label, checked=False, callback=None, tooltip=""):
-        check = QtWidgets.QCheckBox(label)
-        check.setChecked(bool(checked))
-        check.setToolTip(tooltip)
-        if callback is not None:
-            check.stateChanged.connect(callback)
-        return check
-
-    def make_cmap_combo(self, callback=None):
-        combo = self.make_combo(callback=None, tooltip="Choose colormap")
+    def populate_cmap_combo(self, combo):
+        """Populate a Designer-owned combo with Matplotlib colormaps."""
+        combo.clear()
         for cmap in sorted([c for c in plt.colormaps() if not c.endswith("_r")]):
             icon_path = _resource_path("images", f"{cmap}.png")
             if os.path.exists(icon_path):
@@ -234,9 +210,6 @@ class PlotPanel(QtWidgets.QWidget):
             else:
                 combo.addItem(cmap)
         combo.setCurrentText("RdYlBu")
-        if callback is not None:
-            combo.currentIndexChanged.connect(callback)
-        return combo
 
     def slice_miss(self, dim_controls: DimensionControlRow, variable):
         miss = get_miss(self, variable)
@@ -268,12 +241,8 @@ class ScatterPanel(PlotPanel):
         self.reinit()
 
     def _build_ui(self):
-        main = QtWidgets.QVBoxLayout(self)
-
-        row = QtWidgets.QHBoxLayout()
-        self.add_file_controls(row)
-        main.addLayout(row)
-
+        _load_designer_ui("scatter_panel.ui", self)
+        self.connect_file_controls()
         self.figure = Figure(facecolor="white", figsize=(1, 1))
         self.axes = self.figure.add_subplot(111)
         self.axes2 = self.axes.twinx()
@@ -281,120 +250,46 @@ class ScatterPanel(PlotPanel):
         self.axes2.yaxis.tick_right()
         self.canvas = FigureCanvasQTAgg(self.figure)
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
-        main.addWidget(self.canvas, 1)
-        main.addWidget(self.toolbar)
+        self.plotLayout.addWidget(self.canvas, 1)
+        self.plotLayout.addWidget(self.toolbar)
 
-        controls = QtWidgets.QVBoxLayout()
-        main.addLayout(controls)
-
-        rowxy = QtWidgets.QHBoxLayout()
-        rowxy.addWidget(QtWidgets.QLabel("x"))
-        self.x = self.make_combo(callback=self.selected_x,
-                                 tooltip='Choose variable of x-axis. Empty uses index.')
-        rowxy.addWidget(self.x)
-        self.inv_x = self.make_check("invert x", callback=self.checked_x,
-                                     tooltip="Invert x-axis")
-        rowxy.addWidget(self.inv_x)
-        rowxy.addSpacing(16)
-        rowxy.addWidget(QtWidgets.QLabel("y"))
-        rowxy.addWidget(self._nav_button("<", self.prev_y))
-        rowxy.addWidget(self._nav_button(">", self.next_y))
-        self.y = self.make_combo(callback=self.selected_y,
-                                 tooltip="Choose variable of y-axis")
-        rowxy.addWidget(self.y)
-        self.inv_y = self.make_check("invert y", callback=self.checked_y,
-                                     tooltip="Invert y-axis")
-        rowxy.addWidget(self.inv_y)
-        self.redraw_button = QtWidgets.QPushButton("Redraw")
-        self.redraw_button.clicked.connect(self.redraw)
-        rowxy.addWidget(self.redraw_button)
-        controls.addLayout(rowxy)
-
-        dimrow = QtWidgets.QHBoxLayout()
         self.xd = DimensionControlRow(self.maxdim)
-        self.xd.changed.connect(self.spinned_x)
         self.yd = DimensionControlRow(self.maxdim)
-        self.yd.changed.connect(self.spinned_y)
-        dimrow.addWidget(self.xd)
-        dimrow.addSpacing(16)
-        dimrow.addWidget(self.yd)
-        controls.addLayout(dimrow)
+        self.y2d = DimensionControlRow(self.maxdim)
+        self.xDimensionsLayout.addWidget(self.xd)
+        self.yDimensionsLayout.addWidget(self.yd)
+        self.y2DimensionsLayout.addWidget(self.y2d)
 
-        style1 = QtWidgets.QHBoxLayout()
         c = list(plt.rcParams["axes.prop_cycle"])
         col1 = c[0]["color"]
         col2 = c[3]["color"]
-        self.ls = self._entry_with_label(style1, "ls", "-", self.entered_y, 55)
-        self.lw = self._entry_with_label(style1, "lw", "1", self.entered_y, 40)
-        self.lc = self._entry_with_label(style1, "c", col1, self.entered_y, 80)
-        self.marker = self._entry_with_label(style1, "marker", "None", self.entered_y, 60)
-        self.ms = self._entry_with_label(style1, "ms", "1", self.entered_y, 40)
-        self.mfc = self._entry_with_label(style1, "mfc", col1, self.entered_y, 80)
-        self.mec = self._entry_with_label(style1, "mec", col1, self.entered_y, 80)
-        self.mew = self._entry_with_label(style1, "mew", "1", self.entered_y, 40)
-        style1.addStretch(1)
-        controls.addLayout(style1)
+        for entry in (self.lc, self.mfc, self.mec):
+            entry.setText(col1)
+        for entry in (self.lc2, self.mfc2, self.mec2):
+            entry.setText(col2)
 
-        limits = QtWidgets.QHBoxLayout()
-        self.xlim = self._entry_with_label(limits, "xlim", "None", self.entered_y, 110)
-        self.ylim = self._entry_with_label(limits, "ylim", "None", self.entered_y, 110)
-        limits.addStretch(1)
-        controls.addLayout(limits)
-
-        rowy2 = QtWidgets.QHBoxLayout()
-        rowy2.addWidget(QtWidgets.QLabel("y2"))
-        rowy2.addWidget(self._nav_button("<", self.prev_y2))
-        rowy2.addWidget(self._nav_button(">", self.next_y2))
-        self.y2 = self.make_combo(callback=self.selected_y2,
-                                  tooltip="Choose variable for right-hand-side y-axis")
-        rowy2.addWidget(self.y2)
-        self.inv_y2 = self.make_check("invert y2", callback=self.checked_y2,
-                                      tooltip="Invert right-hand-side y-axis")
-        rowy2.addWidget(self.inv_y2)
-        self.same_y = self.make_check("same y-axes", callback=self.checked_yy2,
-                                      tooltip="Same limits for both y-axes")
-        rowy2.addWidget(self.same_y)
-        rowy2.addStretch(1)
-        controls.addLayout(rowy2)
-
-        dimrow2 = QtWidgets.QHBoxLayout()
-        self.y2d = DimensionControlRow(self.maxdim)
+        self.x.currentIndexChanged.connect(self.selected_x)
+        self.inv_x.stateChanged.connect(self.checked_x)
+        self.prevYButton.clicked.connect(self.prev_y)
+        self.nextYButton.clicked.connect(self.next_y)
+        self.y.currentIndexChanged.connect(self.selected_y)
+        self.inv_y.stateChanged.connect(self.checked_y)
+        self.redraw_button.clicked.connect(self.redraw)
+        self.xd.changed.connect(self.spinned_x)
+        self.yd.changed.connect(self.spinned_y)
+        for entry in (self.ls, self.lw, self.lc, self.marker, self.ms,
+                      self.mfc, self.mec, self.mew, self.xlim, self.ylim):
+            entry.editingFinished.connect(self.entered_y)
+        self.prevY2Button.clicked.connect(self.prev_y2)
+        self.nextY2Button.clicked.connect(self.next_y2)
+        self.y2.currentIndexChanged.connect(self.selected_y2)
+        self.inv_y2.stateChanged.connect(self.checked_y2)
+        self.same_y.stateChanged.connect(self.checked_yy2)
         self.y2d.changed.connect(self.spinned_y2)
-        dimrow2.addWidget(self.y2d)
-        dimrow2.addStretch(1)
-        controls.addLayout(dimrow2)
-
-        style2 = QtWidgets.QHBoxLayout()
-        self.ls2 = self._entry_with_label(style2, "ls", "-", self.entered_y2, 55)
-        self.lw2 = self._entry_with_label(style2, "lw", "1", self.entered_y2, 40)
-        self.lc2 = self._entry_with_label(style2, "c", col2, self.entered_y2, 80)
-        self.marker2 = self._entry_with_label(style2, "marker", "None", self.entered_y2, 60)
-        self.ms2 = self._entry_with_label(style2, "ms", "1", self.entered_y2, 40)
-        self.mfc2 = self._entry_with_label(style2, "mfc", col2, self.entered_y2, 80)
-        self.mec2 = self._entry_with_label(style2, "mec", col2, self.entered_y2, 80)
-        self.mew2 = self._entry_with_label(style2, "mew", "1", self.entered_y2, 40)
-        style2.addStretch(1)
-        controls.addLayout(style2)
-
-        rowquit = QtWidgets.QHBoxLayout()
-        self.y2lim = self._entry_with_label(rowquit, "y2lim", "None", self.entered_y2, 110)
-        rowquit.addStretch(1)
-        quit_button = QtWidgets.QPushButton("Quit")
-        quit_button.clicked.connect(QtWidgets.QApplication.quit)
-        rowquit.addWidget(quit_button)
-        controls.addLayout(rowquit)
-
-    def _entry_with_label(self, layout, label, text, callback, width):
-        layout.addWidget(QtWidgets.QLabel(label))
-        entry = self.make_entry(text, callback=callback, width=width)
-        layout.addWidget(entry)
-        return entry
-
-    def _nav_button(self, label, callback):
-        button = QtWidgets.QPushButton(label)
-        button.setFixedWidth(34)
-        button.clicked.connect(callback)
-        return button
+        for entry in (self.ls2, self.lw2, self.lc2, self.marker2, self.ms2,
+                      self.mfc2, self.mec2, self.mew2, self.y2lim):
+            entry.editingFinished.connect(self.entered_y2)
+        self.quitButton.clicked.connect(QtWidgets.QApplication.quit)
 
     def reinit(self):
         super().reinit()
@@ -704,95 +599,40 @@ class ContourPanel(PlotPanel):
         self.reinit()
 
     def _build_ui(self):
-        main = QtWidgets.QVBoxLayout(self)
-        top = QtWidgets.QHBoxLayout()
-        self.add_file_controls(top)
-        main.addLayout(top)
-
+        _load_designer_ui("contour_panel.ui", self)
+        self.connect_file_controls()
         self.figure = Figure(facecolor="white", figsize=(1, 1))
         self.axes = self.figure.add_subplot(111)
         self.canvas = FigureCanvasQTAgg(self.figure)
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
-        main.addWidget(self.canvas, 1)
-        main.addWidget(self.toolbar)
-
-        controls = QtWidgets.QVBoxLayout()
-        main.addLayout(controls)
-
-        rowz = QtWidgets.QHBoxLayout()
-        rowz.addWidget(QtWidgets.QLabel("z"))
-        rowz.addWidget(self._nav_button("<", self.prev_z))
-        rowz.addWidget(self._nav_button(">", self.next_z))
-        self.z = self.make_combo(callback=self.selected_z, tooltip="Choose variable")
-        rowz.addWidget(self.z)
-        self.trans_z = self.make_check("transpose z", callback=self.checked,
-                                       tooltip="Transpose matrix")
-        rowz.addWidget(self.trans_z)
-        self.zmin = self._entry_with_label(rowz, "zmin", "None", self.entered_z, 110)
-        self.zmax = self._entry_with_label(rowz, "zmax", "None", self.entered_z, 110)
-        rowz.addStretch(1)
-        controls.addLayout(rowz)
+        self.plotLayout.addWidget(self.canvas, 1)
+        self.plotLayout.addWidget(self.toolbar)
 
         self.zd = DimensionControlRow(self.maxdim)
-        self.zd.changed.connect(self.spinned_z)
-        controls.addWidget(self.zd)
-
-        rowxy = QtWidgets.QHBoxLayout()
-        rowxy.addWidget(QtWidgets.QLabel("x"))
-        self.x = self.make_combo(callback=self.selected_x,
-                                 tooltip='Choose variable of x-axis. Empty uses index.')
-        rowxy.addWidget(self.x)
-        self.inv_x = self.make_check("invert x", callback=self.checked,
-                                     tooltip="Invert x-axis")
-        rowxy.addWidget(self.inv_x)
-        rowxy.addSpacing(16)
-        rowxy.addWidget(QtWidgets.QLabel("y"))
-        self.y = self.make_combo(callback=self.selected_y,
-                                 tooltip='Choose variable of y-axis. Empty uses index.')
-        rowxy.addWidget(self.y)
-        self.inv_y = self.make_check("invert y", callback=self.checked,
-                                     tooltip="Invert y-axis")
-        rowxy.addWidget(self.inv_y)
-        rowxy.addStretch(1)
-        controls.addLayout(rowxy)
-
-        dimrow = QtWidgets.QHBoxLayout()
         self.xd = DimensionControlRow(self.maxdim)
-        self.xd.changed.connect(self.spinned_x)
         self.yd = DimensionControlRow(self.maxdim)
+        self.zDimensionsLayout.addWidget(self.zd)
+        self.xDimensionsLayout.addWidget(self.xd)
+        self.yDimensionsLayout.addWidget(self.yd)
+        self.populate_cmap_combo(self.cmap)
+
+        self.prevZButton.clicked.connect(self.prev_z)
+        self.nextZButton.clicked.connect(self.next_z)
+        self.z.currentIndexChanged.connect(self.selected_z)
+        self.trans_z.stateChanged.connect(self.checked)
+        self.zmin.editingFinished.connect(self.entered_z)
+        self.zmax.editingFinished.connect(self.entered_z)
+        self.zd.changed.connect(self.spinned_z)
+        self.x.currentIndexChanged.connect(self.selected_x)
+        self.inv_x.stateChanged.connect(self.checked)
+        self.y.currentIndexChanged.connect(self.selected_y)
+        self.inv_y.stateChanged.connect(self.checked)
+        self.xd.changed.connect(self.spinned_x)
         self.yd.changed.connect(self.spinned_y)
-        dimrow.addWidget(self.xd)
-        dimrow.addSpacing(16)
-        dimrow.addWidget(self.yd)
-        controls.addLayout(dimrow)
-
-        opts = QtWidgets.QHBoxLayout()
-        opts.addWidget(QtWidgets.QLabel("cmap"))
-        self.cmap = self.make_cmap_combo(callback=self.selected_cmap)
-        opts.addWidget(self.cmap)
-        self.rev_cmap = self.make_check("reverse cmap", callback=self.checked)
-        self.mesh = self.make_check("mesh", checked=True, callback=self.checked)
-        self.grid = self.make_check("grid", callback=self.checked)
-        opts.addWidget(self.rev_cmap)
-        opts.addWidget(self.mesh)
-        opts.addWidget(self.grid)
-        opts.addStretch(1)
-        quit_button = QtWidgets.QPushButton("Quit")
-        quit_button.clicked.connect(QtWidgets.QApplication.quit)
-        opts.addWidget(quit_button)
-        controls.addLayout(opts)
-
-    def _entry_with_label(self, layout, label, text, callback, width):
-        layout.addWidget(QtWidgets.QLabel(label))
-        entry = self.make_entry(text, callback=callback, width=width)
-        layout.addWidget(entry)
-        return entry
-
-    def _nav_button(self, label, callback):
-        button = QtWidgets.QPushButton(label)
-        button.setFixedWidth(34)
-        button.clicked.connect(callback)
-        return button
+        self.cmap.currentIndexChanged.connect(self.selected_cmap)
+        for check in (self.rev_cmap, self.mesh, self.grid):
+            check.stateChanged.connect(self.checked)
+        self.quitButton.clicked.connect(QtWidgets.QApplication.quit)
 
     def reinit(self):
         super().reinit()
@@ -974,15 +814,12 @@ class ContourPanel(PlotPanel):
 class MapUnavailablePanel(QtWidgets.QWidget):
     def __init__(self, error=None):
         super().__init__()
-        layout = QtWidgets.QVBoxLayout(self)
+        _load_designer_ui("map_unavailable.ui", self)
         message = "Map view is unavailable because Cartopy could not be imported."
         if error is not None:
             message += f"\n\n{type(error).__name__}: {error}"
         message += f"\n\nPython executable: {sys.executable}"
-        label = QtWidgets.QLabel(message)
-        label.setAlignment(QtCore.Qt.AlignCenter)
-        label.setWordWrap(True)
-        layout.addWidget(label)
+        self.messageLabel.setText(message)
 
     def reinit(self):
         pass
@@ -1008,110 +845,23 @@ class MapPanel(PlotPanel):
         self.reinit()
 
     def _build_ui(self):
-        main = QtWidgets.QVBoxLayout(self)
-        top = QtWidgets.QHBoxLayout()
-        self.add_file_controls(top)
-        top.addWidget(QtWidgets.QLabel("Time:"))
-        self.timelbl = QtWidgets.QLabel("")
-        top.addWidget(self.timelbl)
-        main.addLayout(top)
-
+        _load_designer_ui("map_panel.ui", self)
+        self.connect_file_controls()
         self.figure = Figure(facecolor="white", figsize=(1, 1))
         self.axes = self.figure.add_subplot(111, projection=ccrs.PlateCarree())
         self.canvas = FigureCanvasQTAgg(self.figure)
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
-        main.addWidget(self.canvas, 1)
-        main.addWidget(self.toolbar)
-
-        controls = QtWidgets.QVBoxLayout()
-        main.addLayout(controls)
-
-        rowt = QtWidgets.QHBoxLayout()
-        rowt.addWidget(QtWidgets.QLabel("step"))
-        self.tstep = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.tstep.setRange(0, 1)
-        self.tstep.valueChanged.connect(self.tstep_t)
-        rowt.addWidget(self.tstep)
-        self.first_time = self._button("|<<", self.first_t)
-        self.prev_time = self._button("|<", self.prev_t)
-        self.prun_time = self._button("<", self.prun_t)
-        self.nrun_time = self._button(">", self.nrun_t)
-        self.next_time = self._button(">|", self.next_t)
-        self.last_time = self._button(">>|", self.last_t)
-        for button in (self.first_time, self.prev_time, self.prun_time,
-                       self.nrun_time, self.next_time, self.last_time):
-            rowt.addWidget(button)
-        rowt.addWidget(QtWidgets.QLabel("repeat"))
-        self.repeat = self.make_combo(["once", "repeat", "reflect"], self.repeat_t)
-        self.repeat.setCurrentText("repeat")
-        rowt.addWidget(self.repeat)
-        controls.addLayout(rowt)
-
-        rowv = QtWidgets.QHBoxLayout()
-        rowv.addWidget(QtWidgets.QLabel("var"))
-        rowv.addWidget(self._button("<", self.prev_v))
-        rowv.addWidget(self._button(">", self.next_v))
-        self.v = self.make_combo(callback=self.selected_v, tooltip="Choose variable")
-        rowv.addWidget(self.v)
-        self.trans_v = self.make_check("transpose var", callback=self.checked)
-        rowv.addWidget(self.trans_v)
-        self.vmin = self._entry_with_label(rowv, "vmin", "0", self.entered_v, 110)
-        self.vmax = self._entry_with_label(rowv, "vmax", "1", self.entered_v, 110)
-        self.vall = self.make_check("all", callback=self.checked_all)
-        rowv.addWidget(self.vall)
-        rowv.addStretch(1)
-        controls.addLayout(rowv)
+        self.plotLayout.addWidget(self.canvas, 1)
+        self.plotLayout.addWidget(self.toolbar)
 
         self.vd = DimensionControlRow(self.maxdim)
-        self.vd.changed.connect(self.spinned_v)
-        controls.addWidget(self.vd)
-
-        rowll = QtWidgets.QHBoxLayout()
-        rowll.addWidget(QtWidgets.QLabel("lon"))
-        self.lon = self.make_combo(callback=self.selected_lon)
-        rowll.addWidget(self.lon)
-        self.inv_lon = self.make_check("invert lon", callback=self.checked)
-        self.shift_lon = self.make_check("shift lon/2", callback=self.checked)
-        rowll.addWidget(self.inv_lon)
-        rowll.addWidget(self.shift_lon)
-        rowll.addSpacing(16)
-        rowll.addWidget(QtWidgets.QLabel("lat"))
-        self.lat = self.make_combo(callback=self.selected_lat)
-        rowll.addWidget(self.lat)
-        self.inv_lat = self.make_check("invert lat", callback=self.checked)
-        rowll.addWidget(self.inv_lat)
-        rowll.addStretch(1)
-        controls.addLayout(rowll)
-
-        dimrow = QtWidgets.QHBoxLayout()
         self.lond = DimensionControlRow(self.maxdim)
         self.latd = DimensionControlRow(self.maxdim)
-        self.lond.changed.connect(self.spinned_lon)
-        self.latd.changed.connect(self.spinned_lat)
-        dimrow.addWidget(self.lond)
-        dimrow.addSpacing(16)
-        dimrow.addWidget(self.latd)
-        controls.addLayout(dimrow)
+        self.vDimensionsLayout.addWidget(self.vd)
+        self.lonDimensionsLayout.addWidget(self.lond)
+        self.latDimensionsLayout.addWidget(self.latd)
+        self.populate_cmap_combo(self.cmap)
 
-        opts = QtWidgets.QHBoxLayout()
-        opts.addWidget(QtWidgets.QLabel("cmap"))
-        self.cmap = self.make_cmap_combo(callback=self.selected_cmap)
-        opts.addWidget(self.cmap)
-        self.rev_cmap = self.make_check("reverse cmap", callback=self.checked)
-        self.mesh = self.make_check("mesh", checked=True, callback=self.checked)
-        self.iglobal = self.make_check("global", callback=self.checked)
-        self.coast = self.make_check("coast", checked=True, callback=self.checked)
-        self.borders = self.make_check("borders", callback=self.checked)
-        self.rivers = self.make_check("rivers", callback=self.checked)
-        self.lakes = self.make_check("lakes", callback=self.checked)
-        self.grid = self.make_check("grid", callback=self.checked)
-        for widget in (self.rev_cmap, self.mesh, self.iglobal, self.coast,
-                       self.borders, self.rivers, self.lakes, self.grid):
-            opts.addWidget(widget)
-        opts.addStretch(1)
-        controls.addLayout(opts)
-
-        projrow = QtWidgets.QHBoxLayout()
         self.projs = ["AlbersEqualArea", "AzimuthalEquidistant", "EckertI",
                       "EckertII", "EckertIII", "EckertIV", "EckertV",
                       "EckertVI", "EqualEarth", "EquidistantConic",
@@ -1130,29 +880,40 @@ class MapPanel(PlotPanel):
                        ccrs.Mollweide, ccrs.NorthPolarStereo, ccrs.PlateCarree,
                        ccrs.Robinson, ccrs.Sinusoidal, ccrs.SouthPolarStereo,
                        ccrs.Stereographic]
-        projrow.addWidget(QtWidgets.QLabel("projection"))
-        self.proj = self.make_combo(self.projs, self.selected_proj)
+        self.proj.clear()
+        self.proj.addItems(self.projs)
         self.proj.setCurrentText("PlateCarree")
-        projrow.addWidget(self.proj)
-        self.clon = self._entry_with_label(projrow, "central lon", "None",
-                                           self.entered_clon, 80)
-        projrow.addStretch(1)
-        quit_button = QtWidgets.QPushButton("Quit")
-        quit_button.clicked.connect(QtWidgets.QApplication.quit)
-        projrow.addWidget(quit_button)
-        controls.addLayout(projrow)
 
-    def _button(self, text, callback):
-        button = QtWidgets.QPushButton(text)
-        button.setFixedWidth(38)
-        button.clicked.connect(callback)
-        return button
-
-    def _entry_with_label(self, layout, label, text, callback, width):
-        layout.addWidget(QtWidgets.QLabel(label))
-        entry = self.make_entry(text, callback=callback, width=width)
-        layout.addWidget(entry)
-        return entry
+        self.tstep.valueChanged.connect(self.tstep_t)
+        self.first_time.clicked.connect(self.first_t)
+        self.prev_time.clicked.connect(self.prev_t)
+        self.prun_time.clicked.connect(self.prun_t)
+        self.nrun_time.clicked.connect(self.nrun_t)
+        self.next_time.clicked.connect(self.next_t)
+        self.last_time.clicked.connect(self.last_t)
+        self.repeat.currentIndexChanged.connect(self.repeat_t)
+        self.prevVarButton.clicked.connect(self.prev_v)
+        self.nextVarButton.clicked.connect(self.next_v)
+        self.v.currentIndexChanged.connect(self.selected_v)
+        self.trans_v.stateChanged.connect(self.checked)
+        self.vmin.editingFinished.connect(self.entered_v)
+        self.vmax.editingFinished.connect(self.entered_v)
+        self.vall.stateChanged.connect(self.checked_all)
+        self.vd.changed.connect(self.spinned_v)
+        self.lon.currentIndexChanged.connect(self.selected_lon)
+        self.inv_lon.stateChanged.connect(self.checked)
+        self.shift_lon.stateChanged.connect(self.checked)
+        self.lat.currentIndexChanged.connect(self.selected_lat)
+        self.inv_lat.stateChanged.connect(self.checked)
+        self.lond.changed.connect(self.spinned_lon)
+        self.latd.changed.connect(self.spinned_lat)
+        self.cmap.currentIndexChanged.connect(self.selected_cmap)
+        for check in (self.rev_cmap, self.mesh, self.iglobal, self.coast,
+                      self.borders, self.rivers, self.lakes, self.grid):
+            check.stateChanged.connect(self.checked)
+        self.proj.currentIndexChanged.connect(self.selected_proj)
+        self.clon.editingFinished.connect(self.entered_clon)
+        self.quitButton.clicked.connect(QtWidgets.QApplication.quit)
 
     def reinit(self):
         super().reinit()
@@ -1666,19 +1427,26 @@ class NcvMainWindow(QtWidgets.QMainWindow):
 
     def __init__(self, session: NcvSession, parent=None):
         super().__init__(parent)
+        _load_designer_ui("main_window.ui", self)
         self.session = session
         self._children = []
-        self.tabs = QtWidgets.QTabWidget()
-        self.setCentralWidget(self.tabs)
+        tab_labels = {
+            self.tabs.widget(i).objectName(): self.tabs.tabText(i)
+            for i in range(self.tabs.count())
+        }
+        while self.tabs.count():
+            self.tabs.removeTab(0)
         self.scatter = ScatterPanel(self, session)
         self.contour = ContourPanel(self, session)
-        self.tabs.addTab(self.scatter, "Scatter/Line")
-        self.tabs.addTab(self.contour, "Contour")
+        self.tabs.addTab(
+            self.scatter, tab_labels.get("scatterTab", "Scatter/Line"))
+        self.tabs.addTab(
+            self.contour, tab_labels.get("contourTab", "Contour"))
         if ensure_cartopy():
             self.map = MapPanel(self, session)
         else:
             self.map = MapUnavailablePanel(CARTOPY_IMPORT_ERROR)
-        self.tabs.addTab(self.map, "Map")
+        self.tabs.addTab(self.map, tab_labels.get("mapTab", "Map"))
         self.tabs.currentChanged.connect(self._tab_changed)
         self.setWindowIcon(QtGui.QIcon(_resource_path("images", "ncvue_icon.png")))
         w, h, x, y = _window_geometry()
