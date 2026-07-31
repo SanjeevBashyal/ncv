@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 try:
-    from PyQt5 import QtCore, QtGui, QtWidgets
+    from PyQt5 import QtCore, QtGui, QtWidgets, uic
     from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
     from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
 
     QT_AVAILABLE = True
 except ModuleNotFoundError as exc:  # pragma: no cover - environment specific
     QtCore = QtGui = QtWidgets = None
+    uic = None
     FigureCanvasQTAgg = NavigationToolbar2QT = None
     QT_AVAILABLE = False
     QT_IMPORT_ERROR = exc

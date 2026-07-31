@@ -35,5 +35,6 @@ packages = ["ncv"]
 ncv = [
   "images/*.png",
   "images/*.ico",
+  "ui/*.ui",
   "themes/**/*"
 ]
