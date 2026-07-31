@@ -12,7 +12,7 @@
   </property>
   <layout class="QVBoxLayout" name="mainLayout">
    <item>
-    <layout class="QHBoxLayout" name="fileControlsLayout">
+    <layout class="QHBoxLayout" name="horizontalLayout_fileControls">
      <item>
       <widget class="QPushButton" name="pushButton_openFile">
        <property name="toolTip">
@@ -44,7 +44,7 @@
       </widget>
      </item>
      <item>
-      <spacer name="fileControlsSpacer">
+      <spacer name="horizontalSpacer_fileControls">
        <property name="orientation">
         <enum>Qt::Horizontal</enum>
        </property>
@@ -156,7 +156,7 @@
          </widget>
         </item>
         <item>
-         <spacer name="variableControlsSpacer">
+         <spacer name="horizontalSpacer_variableControls">
           <property name="orientation">
            <enum>Qt::Horizontal</enum>
           </property>
@@ -582,7 +582,7 @@
        <number>3</number>
       </property>
       <item>
-       <layout class="QHBoxLayout" name="mapOptionsLayout">
+       <layout class="QHBoxLayout" name="horizontalLayout_mapOptions">
         <item>
          <widget class="QLabel" name="label_cmap">
           <property name="toolTip">
@@ -690,7 +690,7 @@
          </widget>
         </item>
         <item>
-         <spacer name="mapOptionsSpacer">
+         <spacer name="horizontalSpacer_mapOptions">
           <property name="orientation">
            <enum>Qt::Horizontal</enum>
           </property>
@@ -747,7 +747,7 @@
          </widget>
         </item>
         <item>
-         <spacer name="projectionSpacer">
+         <spacer name="horizontalSpacer_projection">
           <property name="orientation">
            <enum>Qt::Horizontal</enum>
           </property>
