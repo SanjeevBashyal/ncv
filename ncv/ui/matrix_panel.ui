@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>MapPanel</class>
- <widget class="QWidget" name="MapPanel">
+ <class>widget_matrixPanel</class>
+ <widget class="QWidget" name="widget_matrixPanel">
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -79,34 +79,17 @@
     </layout>
    </item>
    <item>
-    <widget class="QWidget" name="widget_plotHost" native="true">
-     <property name="sizePolicy">
-      <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-       <horstretch>0</horstretch>
-       <verstretch>1</verstretch>
-      </sizepolicy>
+    <layout class="QHBoxLayout" name="horizontalLayout_matrixAndHeader" stretch="3,1">
+     <property name="topMargin">
+      <number>0</number>
      </property>
-     <property name="minimumSize">
-      <size>
-       <width>0</width>
-       <height>240</height>
-      </size>
-     </property>
-     <layout class="QVBoxLayout" name="plotLayout">
-      <property name="leftMargin">
-       <number>0</number>
-      </property>
-      <property name="topMargin">
-       <number>0</number>
-      </property>
-      <property name="rightMargin">
-       <number>0</number>
-      </property>
-      <property name="bottomMargin">
-       <number>0</number>
-      </property>
-     </layout>
-    </widget>
+     <item>
+      <widget class="QTableView" name="tableView_showMatrix"/>
+     </item>
+     <item>
+      <widget class="QTextBrowser" name="textBrowser_showHeader"/>
+     </item>
+    </layout>
    </item>
    <item>
     <widget class="QGroupBox" name="groupBox_inputs">
@@ -128,7 +111,7 @@
         <item>
          <widget class="QLabel" name="label_var">
           <property name="text">
-           <string>Var</string>
+           <string>Z:</string>
           </property>
          </widget>
         </item>
@@ -149,14 +132,7 @@
          </widget>
         </item>
         <item>
-         <widget class="QCheckBox" name="checkBox_transVariable">
-          <property name="text">
-           <string>Transpose var</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <spacer name="horizontalSpacer_variableControls">
+         <spacer name="variableControlsSpacer">
           <property name="orientation">
            <enum>Qt::Horizontal</enum>
           </property>
@@ -252,7 +228,7 @@
         <item>
          <widget class="QLabel" name="label_longitude">
           <property name="text">
-           <string>Longitude:</string>
+           <string>X:</string>
           </property>
          </widget>
         </item>
@@ -266,20 +242,6 @@
           </property>
           <property name="sizeAdjustPolicy">
            <enum>QComboBox::AdjustToContents</enum>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QCheckBox" name="checkBox_invLongitude">
-          <property name="text">
-           <string>invert lon</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QCheckBox" name="checkBox_shiftLongitude">
-          <property name="text">
-           <string>shift lon/2</string>
           </property>
          </widget>
         </item>
@@ -333,7 +295,7 @@
         <item>
          <widget class="QLabel" name="label_latitude">
           <property name="text">
-           <string>Latitude:</string>
+           <string>Y:</string>
           </property>
          </widget>
         </item>
@@ -347,13 +309,6 @@
           </property>
           <property name="sizeAdjustPolicy">
            <enum>QComboBox::AdjustToContents</enum>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QCheckBox" name="checkBox_invLatitude">
-          <property name="text">
-           <string>invert lat</string>
           </property>
          </widget>
         </item>
@@ -582,115 +537,152 @@
        <number>3</number>
       </property>
       <item>
-       <layout class="QHBoxLayout" name="horizontalLayout_mapOptions">
+       <layout class="QHBoxLayout" name="horizontalLayout_dataFormat">
         <item>
-         <widget class="QLabel" name="label_cmap">
+         <widget class="QLabel" name="label_dataFormat">
           <property name="toolTip">
            <string>Colour map</string>
           </property>
           <property name="text">
-           <string>cmap</string>
+           <string>Data Format:</string>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QComboBox" name="comboBox_cmap">
+         <widget class="QComboBox" name="comboBox_dataFormat">
           <property name="toolTip">
            <string>Choose the colormap</string>
+          </property>
+          <property name="currentIndex">
+           <number>4</number>
           </property>
           <property name="sizeAdjustPolicy">
            <enum>QComboBox::AdjustToContents</enum>
           </property>
+          <item>
+           <property name="text">
+            <string>%f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%E</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.0f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.0E</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.1f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.1E</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.2f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.2E</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.3f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.3E</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.4f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.4E</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.5f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.5E</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.6f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.6E</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.7f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.7E</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.8f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.8E</string>
+           </property>
+          </item>
          </widget>
         </item>
         <item>
-         <widget class="QCheckBox" name="checkBox_revCmap">
+         <widget class="QCheckBox" name="checkBox_flipTableTopBottom">
           <property name="toolTip">
            <string>Reverse colour map</string>
           </property>
           <property name="text">
-           <string>reverse cmap</string>
+           <string>Flip Table Top/Bottom</string>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QCheckBox" name="checkBox_mesh">
+         <widget class="QCheckBox" name="checkBox_flipTableLeftRight">
           <property name="toolTip">
-           <string>Gridded or smooth plot</string>
+           <string>Reverse colour map</string>
           </property>
           <property name="text">
-           <string>mesh</string>
-          </property>
-          <property name="checked">
-           <bool>true</bool>
+           <string>Flip Table Left/Right</string>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QCheckBox" name="checkBox_global">
-          <property name="toolTip">
-           <string>Enable global extent</string>
-          </property>
-          <property name="text">
-           <string>global</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QCheckBox" name="checkBox_coast">
-          <property name="toolTip">
-           <string>Draw continental coast lines</string>
-          </property>
-          <property name="text">
-           <string>coast</string>
-          </property>
-          <property name="checked">
-           <bool>true</bool>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QCheckBox" name="checkBox_borders">
-          <property name="toolTip">
-           <string>Draw country borders</string>
-          </property>
-          <property name="text">
-           <string>borders</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QCheckBox" name="checkBox_rivers">
-          <property name="toolTip">
-           <string>Draw rivers</string>
-          </property>
-          <property name="text">
-           <string>rivers</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QCheckBox" name="checkBox_lakes">
-          <property name="toolTip">
-           <string>Draw lakes</string>
-          </property>
-          <property name="text">
-           <string>lakes</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QCheckBox" name="checkBox_grid">
-          <property name="toolTip">
-           <string>Draw grids</string>
-          </property>
-          <property name="text">
-           <string>grid</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <spacer name="horizontalSpacer_mapOptions">
+         <spacer name="horizontalSpacer_dataFormat">
           <property name="orientation">
            <enum>Qt::Horizontal</enum>
           </property>
@@ -707,47 +699,137 @@
       <item>
        <layout class="QHBoxLayout" name="horizontalLayout_projection">
         <item>
-         <widget class="QLabel" name="label_projection">
+         <widget class="QLabel" name="label_rowColHeaderFormat">
           <property name="text">
-           <string>Projection:</string>
+           <string>Row/Col Header Format:</string>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QComboBox" name="comboBox_projection">
+         <widget class="QComboBox" name="comboBox_rowColHeaderFormat">
           <property name="toolTip">
-           <string>Select the projection of the map</string>
+           <string>Choose the colormap</string>
+          </property>
+          <property name="currentIndex">
+           <number>4</number>
           </property>
           <property name="sizeAdjustPolicy">
            <enum>QComboBox::AdjustToContents</enum>
           </property>
+          <item>
+           <property name="text">
+            <string>%f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%E</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.0f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.0E</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.1f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.1E</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.2f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.2E</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.3f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.3E</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.4f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.4E</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.5f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.5E</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.6f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.6E</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.7f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.7E</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.8f</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>%.8E</string>
+           </property>
+          </item>
          </widget>
         </item>
         <item>
-         <widget class="QLabel" name="label_centralLon">
-          <property name="text">
-           <string>central lon</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QLineEdit" name="lineEdit_centralLon">
-          <property name="maximumSize">
-           <size>
-            <width>80</width>
-            <height>16777215</height>
-           </size>
-          </property>
+         <widget class="QCheckBox" name="checkBox_showCellIndices">
           <property name="toolTip">
-           <string>Select central meridian for the map</string>
+           <string>Reverse colour map</string>
           </property>
           <property name="text">
-           <string>None</string>
+           <string>Show cell indices</string>
           </property>
          </widget>
         </item>
         <item>
-         <spacer name="horizontalSpacer_projection">
+         <spacer name="horizontalSpacer_rowColHeaderFormat">
           <property name="orientation">
            <enum>Qt::Horizontal</enum>
           </property>
