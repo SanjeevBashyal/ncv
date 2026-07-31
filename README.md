@@ -4,9 +4,9 @@ A PyQt5 viewer for NetCDF files.
 
 ## Editing the interface with Qt Designer
 
-The editable Qt Designer sources are in [`ncv/ui`](ncv/ui). The application
-loads these files directly at runtime, so saving a form in Designer is enough;
-do not generate or edit a `pyuic5` Python module.
+The editable Qt Designer sources are in [`ncv/ui`](ncv/ui). Generated PyQt5
+classes live in [`ncv/pyui`](ncv/pyui) and are imported by the application.
+Never edit a generated `ui_*.py` module by hand.
 
 Open the forms with Qt Designer (the executable may be named `designer` or
 `qt5-designer` on your system):
@@ -17,6 +17,12 @@ designer ncv/ui/scatter_panel.ui
 designer ncv/ui/contour_panel.ui
 designer ncv/ui/map_panel.ui
 designer ncv/ui/map_unavailable.ui
+```
+
+After saving a form, regenerate the Python forms from the repository root:
+
+```bash
+./convert-ui-to-py.sh
 ```
 
 `main_window.ui` controls the window and tab shell. The panel forms contain the
@@ -31,7 +37,7 @@ rename or remove one, update the corresponding Python reference and tests.
 Validate UI changes from the repository root with:
 
 ```bash
-python3 -m py_compile ncv/*.py
+python3 -m py_compile ncv/*.py ncv/pyui/*.py
 QT_QPA_PLATFORM=offscreen python3 -m pytest
 QT_QPA_PLATFORM=offscreen python3 -m ncv
 ```

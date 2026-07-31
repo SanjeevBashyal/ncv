@@ -41,21 +41,18 @@ from .ncvmethods import get_miss
 from .ncvutils import add_cyclic, format_coord_contour, format_coord_map
 from .ncvutils import format_coord_scatter, get_slice_values, parse_entry
 from .ncvutils import selvar, set_axis_label, set_miss, vardim2var
+from .pyui.ui_contour_panel import Ui_ContourPanel
+from .pyui.ui_main_window import Ui_NcvMainWindow
+from .pyui.ui_map_panel import Ui_MapPanel
+from .pyui.ui_map_unavailable import Ui_MapUnavailablePanel
+from .pyui.ui_scatter_panel import Ui_ScatterPanel
 from .qt_compat import FigureCanvasQTAgg, NavigationToolbar2QT
-from .qt_compat import QtCore, QtGui, QtWidgets, require_qt, uic
+from .qt_compat import QtCore, QtGui, QtWidgets, require_qt
 from .session import HAVE_XARRAY, NcvSession, normalize_files
 
 
 def _resource_path(*parts: str) -> str:
     return str(Path(__file__).resolve().parent.joinpath(*parts))
-
-
-def _load_designer_ui(filename: str, instance):
-    """Load a packaged Qt Designer form into an existing widget instance."""
-    path = _resource_path("ui", filename)
-    if not os.path.isfile(path):
-        raise RuntimeError(f"Required ncv Qt Designer form is missing: {path}")
-    return uic.loadUi(path, instance)
 
 
 def _window_geometry() -> tuple[int, int, int, int]:
@@ -192,13 +189,14 @@ class PlotPanel(QtWidgets.QWidget):
 
     def connect_file_controls(self):
         """Connect the common file buttons supplied by a Designer form."""
-        self.openFileButton.clicked.connect(
+        self.pushButton_openFile.clicked.connect(
             lambda: self.window.open_file_dialog(False))
-        self.openXarrayButton.setVisible(HAVE_XARRAY)
+        self.pushButton_openXarray.setVisible(HAVE_XARRAY)
         if HAVE_XARRAY:
-            self.openXarrayButton.clicked.connect(
+            self.pushButton_openXarray.clicked.connect(
                 lambda: self.window.open_file_dialog(True))
-        self.newWindowButton.clicked.connect(self.window.create_secondary_window)
+        self.pushButton_newWindow.clicked.connect(
+            self.window.create_secondary_window)
 
     def populate_cmap_combo(self, combo):
         """Populate a Designer-owned combo with Matplotlib colormaps."""
@@ -232,7 +230,7 @@ class PlotPanel(QtWidgets.QWidget):
         raise NotImplementedError
 
 
-class ScatterPanel(PlotPanel):
+class ScatterPanel(PlotPanel, Ui_ScatterPanel):
     def __init__(self, window, session):
         super().__init__(window, session, "Scatter/Line")
         self.line_y = []
@@ -241,7 +239,7 @@ class ScatterPanel(PlotPanel):
         self.reinit()
 
     def _build_ui(self):
-        _load_designer_ui("scatter_panel.ui", self)
+        self.setupUi(self)
         self.connect_file_controls()
         self.figure = Figure(facecolor="white", figsize=(1, 1))
         self.axes = self.figure.add_subplot(111)
@@ -263,45 +261,59 @@ class ScatterPanel(PlotPanel):
         c = list(plt.rcParams["axes.prop_cycle"])
         col1 = c[0]["color"]
         col2 = c[3]["color"]
-        for entry in (self.lc, self.mfc, self.mec):
+        for entry in (self.lineEdit_lineColorY1,
+                      self.lineEdit_markerFillColorY1,
+                      self.lineEdit_markerEdgeColorY1):
             entry.setText(col1)
-        for entry in (self.lc2, self.mfc2, self.mec2):
+        for entry in (self.lineEdit_lineColorY2,
+                      self.lineEdit_markerFillColorY2,
+                      self.lineEdit_markerEdgeColorY2):
             entry.setText(col2)
 
-        self.x.currentIndexChanged.connect(self.selected_x)
-        self.inv_x.stateChanged.connect(self.checked_x)
-        self.prevYButton.clicked.connect(self.prev_y)
-        self.nextYButton.clicked.connect(self.next_y)
-        self.y.currentIndexChanged.connect(self.selected_y)
-        self.inv_y.stateChanged.connect(self.checked_y)
-        self.redraw_button.clicked.connect(self.redraw)
+        self.comboBox_x.currentIndexChanged.connect(self.selected_x)
+        self.checkBox_invX.stateChanged.connect(self.checked_x)
+        self.comboBox_y.currentIndexChanged.connect(self.selected_y)
+        self.checkBox_invY.stateChanged.connect(self.checked_y)
+        self.pushButton_redraw.clicked.connect(self.redraw)
         self.xd.changed.connect(self.spinned_x)
         self.yd.changed.connect(self.spinned_y)
-        for entry in (self.ls, self.lw, self.lc, self.marker, self.ms,
-                      self.mfc, self.mec, self.mew, self.xlim, self.ylim):
+        for entry in (self.lineEdit_lineStyleY1,
+                      self.lineEdit_lineWidthY1,
+                      self.lineEdit_lineColorY1,
+                      self.lineEdit_markerStyleY1,
+                      self.lineEdit_markerSizeY1,
+                      self.lineEdit_markerFillColorY1,
+                      self.lineEdit_markerEdgeColorY1,
+                      self.lineEdit_markerEdgeWidthY1,
+                      self.lineEdit_xlim, self.lineEdit_ylim):
             entry.editingFinished.connect(self.entered_y)
-        self.prevY2Button.clicked.connect(self.prev_y2)
-        self.nextY2Button.clicked.connect(self.next_y2)
-        self.y2.currentIndexChanged.connect(self.selected_y2)
-        self.inv_y2.stateChanged.connect(self.checked_y2)
-        self.same_y.stateChanged.connect(self.checked_yy2)
+        self.comboBox_y2.currentIndexChanged.connect(self.selected_y2)
+        self.checkBox_invY2.stateChanged.connect(self.checked_y2)
+        self.checkBox_sameYaxis.stateChanged.connect(self.checked_yy2)
         self.y2d.changed.connect(self.spinned_y2)
-        for entry in (self.ls2, self.lw2, self.lc2, self.marker2, self.ms2,
-                      self.mfc2, self.mec2, self.mew2, self.y2lim):
+        for entry in (self.lineEdit_lineStyleY2,
+                      self.lineEdit_lineWidthY2,
+                      self.lineEdit_lineColorY2,
+                      self.lineEdit_markerStyleY2,
+                      self.lineEdit_markerSizeY2,
+                      self.lineEdit_markerFillColorY2,
+                      self.lineEdit_markerEdgeColorY2,
+                      self.lineEdit_markerEdgeWidthY2,
+                      self.lineEdit_y2lim):
             entry.editingFinished.connect(self.entered_y2)
-        self.quitButton.clicked.connect(QtWidgets.QApplication.quit)
+        self.pushButton_quit.clicked.connect(QtWidgets.QApplication.quit)
 
     def reinit(self):
         super().reinit()
         self._updating = True
         columns = self.columns()
-        for combo in (self.x, self.y, self.y2):
+        for combo in (self.comboBox_x, self.comboBox_y, self.comboBox_y2):
             _set_combo_items(combo, columns, "")
         for dims in (self.xd, self.yd, self.y2d):
             dims.set_specs(empty_dimension_specs(self.maxdim))
-        self.xlim.setText("None")
-        self.ylim.setText("None")
-        self.y2lim.setText("None")
+        self.lineEdit_xlim.setText("None")
+        self.lineEdit_ylim.setText("None")
+        self.lineEdit_y2lim.setText("None")
         self._updating = False
 
     def checked_x(self):
@@ -319,8 +331,8 @@ class ScatterPanel(PlotPanel):
 
     def checked_yy2(self):
         if not self._updating:
-            self.ylim.setText("None")
-            self.y2lim.setText("None")
+            self.lineEdit_ylim.setText("None")
+            self.lineEdit_y2lim.setText("None")
             self.redraw_y()
             self.redraw_y2()
 
@@ -332,42 +344,28 @@ class ScatterPanel(PlotPanel):
         if not self._updating:
             self.redraw_y2()
 
-    def _move_combo(self, combo, step):
-        idx = combo.currentIndex() + step
-        if 0 < idx < combo.count():
-            combo.setCurrentIndex(idx)
-
-    def next_y(self):
-        self._move_combo(self.y, 1)
-
-    def prev_y(self):
-        self._move_combo(self.y, -1)
-
-    def next_y2(self):
-        self._move_combo(self.y2, 1)
-
-    def prev_y2(self):
-        self._move_combo(self.y2, -1)
-
     def selected_x(self):
         if self._updating:
             return
-        self.xd.set_specs(dimension_specs(self, self.x.currentText(), "x"))
-        self.xlim.setText("None")
+        self.xd.set_specs(
+            dimension_specs(self, self.comboBox_x.currentText(), "x"))
+        self.lineEdit_xlim.setText("None")
         self.redraw()
 
     def selected_y(self):
         if self._updating:
             return
-        self.yd.set_specs(dimension_specs(self, self.y.currentText(), "y"))
-        self.ylim.setText("None")
+        self.yd.set_specs(
+            dimension_specs(self, self.comboBox_y.currentText(), "y"))
+        self.lineEdit_ylim.setText("None")
         self.redraw()
 
     def selected_y2(self):
         if self._updating:
             return
-        self.y2d.set_specs(dimension_specs(self, self.y2.currentText(), "y2"))
-        self.y2lim.setText("None")
+        self.y2d.set_specs(
+            dimension_specs(self, self.comboBox_y2.currentText(), "y2"))
+        self.lineEdit_y2lim.setText("None")
         self.redraw()
 
     def spinned_x(self):
@@ -383,22 +381,22 @@ class ScatterPanel(PlotPanel):
             self.redraw()
 
     def redraw_y(self):
-        y = self.y.currentText()
+        y = self.comboBox_y.currentText()
         if not y:
             return
-        inv_y = self.inv_y.isChecked()
-        ylim = parse_entry(self.ylim.text())
-        ylim2 = parse_entry(self.y2lim.text())
-        ls = self.ls.text()
-        lw = float(self.lw.text())
-        color = _maybe_color(self.lc.text())
-        marker = self.marker.text()
-        ms = float(self.ms.text())
-        mfc = _maybe_color(self.mfc.text())
-        mec = _maybe_color(self.mec.text())
-        mew = float(self.mew.text())
-        y2 = self.y2.currentText()
-        same_y = self.same_y.isChecked()
+        inv_y = self.checkBox_invY.isChecked()
+        ylim = parse_entry(self.lineEdit_ylim.text())
+        ylim2 = parse_entry(self.lineEdit_y2lim.text())
+        ls = self.lineEdit_lineStyleY1.text()
+        lw = float(self.lineEdit_lineWidthY1.text())
+        color = _maybe_color(self.lineEdit_lineColorY1.text())
+        marker = self.lineEdit_markerStyleY1.text()
+        ms = float(self.lineEdit_markerSizeY1.text())
+        mfc = _maybe_color(self.lineEdit_markerFillColorY1.text())
+        mec = _maybe_color(self.lineEdit_markerEdgeColorY1.text())
+        mew = float(self.lineEdit_markerEdgeWidthY1.text())
+        y2 = self.comboBox_y2.currentText()
+        same_y = self.checkBox_sameYaxis.isChecked()
         pargs = {
             "linestyle": ls,
             "linewidth": lw,
@@ -448,24 +446,27 @@ class ScatterPanel(PlotPanel):
         self.toolbar.update()
 
     def redraw_y2(self):
-        y2 = self.y2.currentText()
+        y2 = self.comboBox_y2.currentText()
         if not y2:
             return
-        y = self.y.currentText()
-        inv_y2 = self.inv_y2.isChecked()
-        same_y = self.same_y.isChecked()
-        ylim = parse_entry(self.ylim.text())
-        ylim2 = parse_entry(self.y2lim.text())
+        y = self.comboBox_y.currentText()
+        inv_y2 = self.checkBox_invY2.isChecked()
+        same_y = self.checkBox_sameYaxis.isChecked()
+        ylim = parse_entry(self.lineEdit_ylim.text())
+        ylim2 = parse_entry(self.lineEdit_y2lim.text())
         pargs = {
-            "linestyle": self.ls2.text(),
-            "linewidth": float(self.lw2.text()),
-            "marker": self.marker2.text(),
-            "markersize": float(self.ms2.text()),
-            "markerfacecolor": _maybe_color(self.mfc2.text()),
-            "markeredgecolor": _maybe_color(self.mec2.text()),
-            "markeredgewidth": float(self.mew2.text()),
+            "linestyle": self.lineEdit_lineStyleY2.text(),
+            "linewidth": float(self.lineEdit_lineWidthY2.text()),
+            "marker": self.lineEdit_markerStyleY2.text(),
+            "markersize": float(self.lineEdit_markerSizeY2.text()),
+            "markerfacecolor": _maybe_color(
+                self.lineEdit_markerFillColorY2.text()),
+            "markeredgecolor": _maybe_color(
+                self.lineEdit_markerEdgeColorY2.text()),
+            "markeredgewidth": float(
+                self.lineEdit_markerEdgeWidthY2.text()),
         }
-        color = _maybe_color(self.lc2.text())
+        color = _maybe_color(self.lineEdit_lineColorY2.text())
         gy, vy = vardim2var(y2, self.groups)
         tname = self.tname if self.usex else self.tname[gy]
         if vy == tname:
@@ -507,8 +508,8 @@ class ScatterPanel(PlotPanel):
         self.toolbar.update()
 
     def _apply_x_limits(self):
-        inv_x = self.inv_x.isChecked()
-        xlim = parse_entry(self.xlim.text())
+        inv_x = self.checkBox_invX.isChecked()
+        xlim = parse_entry(self.lineEdit_xlim.text())
         if not isinstance(xlim, list):
             xlim = self.axes.get_xlim()
         if inv_x and xlim[0] is not None:
@@ -521,9 +522,9 @@ class ScatterPanel(PlotPanel):
             self.axes.set_xlim(xlim)
 
     def redraw(self):
-        x = self.x.currentText()
-        y = self.y.currentText()
-        y2 = self.y2.currentText()
+        x = self.comboBox_x.currentText()
+        y = self.comboBox_y.currentText()
+        y2 = self.comboBox_y2.currentText()
         self.axes.clear()
         self.axes2.clear()
         self.axes2.yaxis.set_label_position("right")
@@ -592,14 +593,14 @@ class ScatterPanel(PlotPanel):
         self.toolbar.update()
 
 
-class ContourPanel(PlotPanel):
+class ContourPanel(PlotPanel, Ui_ContourPanel):
     def __init__(self, window, session):
         super().__init__(window, session, "Contour")
         self._build_ui()
         self.reinit()
 
     def _build_ui(self):
-        _load_designer_ui("contour_panel.ui", self)
+        self.setupUi(self)
         self.connect_file_controls()
         self.figure = Figure(facecolor="white", figsize=(1, 1))
         self.axes = self.figure.add_subplot(111)
@@ -614,36 +615,37 @@ class ContourPanel(PlotPanel):
         self.zDimensionsLayout.addWidget(self.zd)
         self.xDimensionsLayout.addWidget(self.xd)
         self.yDimensionsLayout.addWidget(self.yd)
-        self.populate_cmap_combo(self.cmap)
+        self.populate_cmap_combo(self.comboBox_cmap)
 
-        self.prevZButton.clicked.connect(self.prev_z)
-        self.nextZButton.clicked.connect(self.next_z)
-        self.z.currentIndexChanged.connect(self.selected_z)
-        self.trans_z.stateChanged.connect(self.checked)
-        self.zmin.editingFinished.connect(self.entered_z)
-        self.zmax.editingFinished.connect(self.entered_z)
+        self.pushButton_prevZ.clicked.connect(self.prev_z)
+        self.pushButton_nextZ.clicked.connect(self.next_z)
+        self.comboBox_z.currentIndexChanged.connect(self.selected_z)
+        self.checkBox_transZ.stateChanged.connect(self.checked)
+        self.lineEdit_zmin.editingFinished.connect(self.entered_z)
+        self.lineEdit_zmax.editingFinished.connect(self.entered_z)
         self.zd.changed.connect(self.spinned_z)
-        self.x.currentIndexChanged.connect(self.selected_x)
-        self.inv_x.stateChanged.connect(self.checked)
-        self.y.currentIndexChanged.connect(self.selected_y)
-        self.inv_y.stateChanged.connect(self.checked)
+        self.comboBox_x.currentIndexChanged.connect(self.selected_x)
+        self.checkBox_invX.stateChanged.connect(self.checked)
+        self.comboBox_y.currentIndexChanged.connect(self.selected_y)
+        self.checkBox_invY.stateChanged.connect(self.checked)
         self.xd.changed.connect(self.spinned_x)
         self.yd.changed.connect(self.spinned_y)
-        self.cmap.currentIndexChanged.connect(self.selected_cmap)
-        for check in (self.rev_cmap, self.mesh, self.grid):
+        self.comboBox_cmap.currentIndexChanged.connect(self.selected_cmap)
+        for check in (self.checkBox_revCmap, self.checkBox_mesh,
+                      self.checkBox_grid):
             check.stateChanged.connect(self.checked)
-        self.quitButton.clicked.connect(QtWidgets.QApplication.quit)
+        self.pushButton_quit.clicked.connect(QtWidgets.QApplication.quit)
 
     def reinit(self):
         super().reinit()
         self._updating = True
         columns = self.columns()
-        for combo in (self.z, self.x, self.y):
+        for combo in (self.comboBox_z, self.comboBox_x, self.comboBox_y):
             _set_combo_items(combo, columns, "")
         for dims in (self.zd, self.xd, self.yd):
             dims.set_specs(empty_dimension_specs(self.maxdim))
-        self.zmin.setText("None")
-        self.zmax.setText("None")
+        self.lineEdit_zmin.setText("None")
+        self.lineEdit_zmax.setText("None")
         self._updating = False
 
     def checked(self):
@@ -667,9 +669,9 @@ class ContourPanel(PlotPanel):
         self.checked()
 
     def _move_z(self, step):
-        idx = self.z.currentIndex() + step
-        if 0 < idx < self.z.count():
-            self.z.setCurrentIndex(idx)
+        idx = self.comboBox_z.currentIndex() + step
+        if 0 < idx < self.comboBox_z.count():
+            self.comboBox_z.setCurrentIndex(idx)
 
     def next_z(self):
         self._move_z(1)
@@ -680,45 +682,48 @@ class ContourPanel(PlotPanel):
     def selected_x(self):
         if self._updating:
             return
-        self.inv_x.setChecked(False)
-        self.xd.set_specs(dimension_specs(self, self.x.currentText(), "x"))
+        self.checkBox_invX.setChecked(False)
+        self.xd.set_specs(
+            dimension_specs(self, self.comboBox_x.currentText(), "x"))
         self.redraw()
 
     def selected_y(self):
         if self._updating:
             return
-        self.inv_y.setChecked(False)
-        self.yd.set_specs(dimension_specs(self, self.y.currentText(), "y"))
+        self.checkBox_invY.setChecked(False)
+        self.yd.set_specs(
+            dimension_specs(self, self.comboBox_y.currentText(), "y"))
         self.redraw()
 
     def selected_z(self):
         if self._updating:
             return
-        self.x.setCurrentText("")
-        self.y.setCurrentText("")
-        self.inv_x.setChecked(False)
-        self.inv_y.setChecked(False)
-        self.zmin.setText("None")
-        self.zmax.setText("None")
+        self.comboBox_x.setCurrentText("")
+        self.comboBox_y.setCurrentText("")
+        self.checkBox_invX.setChecked(False)
+        self.checkBox_invY.setChecked(False)
+        self.lineEdit_zmin.setText("None")
+        self.lineEdit_zmax.setText("None")
         self.xd.set_specs(empty_dimension_specs(self.maxdim))
         self.yd.set_specs(empty_dimension_specs(self.maxdim))
-        self.zd.set_specs(dimension_specs(self, self.z.currentText(), "z"))
+        self.zd.set_specs(
+            dimension_specs(self, self.comboBox_z.currentText(), "z"))
         self.redraw()
 
     def redraw(self):
-        z = self.z.currentText()
-        trans_z = self.trans_z.isChecked()
-        zmin = _float_or_none(self.zmin.text())
-        zmax = _float_or_none(self.zmax.text())
-        x = self.x.currentText()
-        y = self.y.currentText()
-        inv_x = self.inv_x.isChecked()
-        inv_y = self.inv_y.isChecked()
-        cmap = self.cmap.currentText()
-        if self.rev_cmap.isChecked():
+        z = self.comboBox_z.currentText()
+        trans_z = self.checkBox_transZ.isChecked()
+        zmin = _float_or_none(self.lineEdit_zmin.text())
+        zmax = _float_or_none(self.lineEdit_zmax.text())
+        x = self.comboBox_x.currentText()
+        y = self.comboBox_y.currentText()
+        inv_x = self.checkBox_invX.isChecked()
+        inv_y = self.checkBox_invY.isChecked()
+        cmap = self.comboBox_cmap.currentText()
+        if self.checkBox_revCmap.isChecked():
             cmap += "_r"
-        mesh = self.mesh.isChecked()
-        grid = self.grid.isChecked()
+        mesh = self.checkBox_mesh.isChecked()
+        grid = self.checkBox_grid.isChecked()
         self.figure.clear()
         self.axes = self.figure.add_subplot(111)
         vx = vy = vz = "None"
@@ -811,15 +816,15 @@ class ContourPanel(PlotPanel):
         self.toolbar.update()
 
 
-class MapUnavailablePanel(QtWidgets.QWidget):
+class MapUnavailablePanel(QtWidgets.QWidget, Ui_MapUnavailablePanel):
     def __init__(self, error=None):
         super().__init__()
-        _load_designer_ui("map_unavailable.ui", self)
+        self.setupUi(self)
         message = "Map view is unavailable because Cartopy could not be imported."
         if error is not None:
             message += f"\n\n{type(error).__name__}: {error}"
         message += f"\n\nPython executable: {sys.executable}"
-        self.messageLabel.setText(message)
+        self.label_message.setText(message)
 
     def reinit(self):
         pass
@@ -828,7 +833,7 @@ class MapUnavailablePanel(QtWidgets.QWidget):
         pass
 
 
-class MapPanel(PlotPanel):
+class MapPanel(PlotPanel, Ui_MapPanel):
     def __init__(self, window, session):
         if not ensure_cartopy():
             raise RuntimeError("Cartopy is required for MapPanel") from CARTOPY_IMPORT_ERROR
@@ -845,7 +850,7 @@ class MapPanel(PlotPanel):
         self.reinit()
 
     def _build_ui(self):
-        _load_designer_ui("map_panel.ui", self)
+        self.setupUi(self)
         self.connect_file_controls()
         self.figure = Figure(facecolor="white", figsize=(1, 1))
         self.axes = self.figure.add_subplot(111, projection=ccrs.PlateCarree())
@@ -860,7 +865,7 @@ class MapPanel(PlotPanel):
         self.vDimensionsLayout.addWidget(self.vd)
         self.lonDimensionsLayout.addWidget(self.lond)
         self.latDimensionsLayout.addWidget(self.latd)
-        self.populate_cmap_combo(self.cmap)
+        self.populate_cmap_combo(self.comboBox_cmap)
 
         self.projs = ["AlbersEqualArea", "AzimuthalEquidistant", "EckertI",
                       "EckertII", "EckertIII", "EckertIV", "EckertV",
@@ -880,40 +885,42 @@ class MapPanel(PlotPanel):
                        ccrs.Mollweide, ccrs.NorthPolarStereo, ccrs.PlateCarree,
                        ccrs.Robinson, ccrs.Sinusoidal, ccrs.SouthPolarStereo,
                        ccrs.Stereographic]
-        self.proj.clear()
-        self.proj.addItems(self.projs)
-        self.proj.setCurrentText("PlateCarree")
+        self.comboBox_projection.clear()
+        self.comboBox_projection.addItems(self.projs)
+        self.comboBox_projection.setCurrentText("PlateCarree")
 
-        self.tstep.valueChanged.connect(self.tstep_t)
-        self.first_time.clicked.connect(self.first_t)
-        self.prev_time.clicked.connect(self.prev_t)
-        self.prun_time.clicked.connect(self.prun_t)
-        self.nrun_time.clicked.connect(self.nrun_t)
-        self.next_time.clicked.connect(self.next_t)
-        self.last_time.clicked.connect(self.last_t)
-        self.repeat.currentIndexChanged.connect(self.repeat_t)
-        self.prevVarButton.clicked.connect(self.prev_v)
-        self.nextVarButton.clicked.connect(self.next_v)
-        self.v.currentIndexChanged.connect(self.selected_v)
-        self.trans_v.stateChanged.connect(self.checked)
-        self.vmin.editingFinished.connect(self.entered_v)
-        self.vmax.editingFinished.connect(self.entered_v)
-        self.vall.stateChanged.connect(self.checked_all)
+        self.horizontalSlider_timeStep.valueChanged.connect(self.tstep_t)
+        self.pushButton_firstTime.clicked.connect(self.first_t)
+        self.pushButton_prevTime.clicked.connect(self.prev_t)
+        self.pushButton_runBackward.clicked.connect(self.prun_t)
+        self.pushButton_runForward.clicked.connect(self.nrun_t)
+        self.pushButton_nextTime.clicked.connect(self.next_t)
+        self.pushButton_lastTime.clicked.connect(self.last_t)
+        self.comboBox_repeat.currentIndexChanged.connect(self.repeat_t)
+        self.pushButton_prevVariable.clicked.connect(self.prev_v)
+        self.pushButton_nextVariable.clicked.connect(self.next_v)
+        self.comboBox_variable.currentIndexChanged.connect(self.selected_v)
+        self.checkBox_transVariable.stateChanged.connect(self.checked)
+        self.lineEdit_vmin.editingFinished.connect(self.entered_v)
+        self.lineEdit_vmax.editingFinished.connect(self.entered_v)
+        self.checkBox_allValues.stateChanged.connect(self.checked_all)
         self.vd.changed.connect(self.spinned_v)
-        self.lon.currentIndexChanged.connect(self.selected_lon)
-        self.inv_lon.stateChanged.connect(self.checked)
-        self.shift_lon.stateChanged.connect(self.checked)
-        self.lat.currentIndexChanged.connect(self.selected_lat)
-        self.inv_lat.stateChanged.connect(self.checked)
+        self.comboBox_lon.currentIndexChanged.connect(self.selected_lon)
+        self.checkBox_invLon.stateChanged.connect(self.checked)
+        self.checkBox_shiftLon.stateChanged.connect(self.checked)
+        self.comboBox_lat.currentIndexChanged.connect(self.selected_lat)
+        self.checkBox_invLat.stateChanged.connect(self.checked)
         self.lond.changed.connect(self.spinned_lon)
         self.latd.changed.connect(self.spinned_lat)
-        self.cmap.currentIndexChanged.connect(self.selected_cmap)
-        for check in (self.rev_cmap, self.mesh, self.iglobal, self.coast,
-                      self.borders, self.rivers, self.lakes, self.grid):
+        self.comboBox_cmap.currentIndexChanged.connect(self.selected_cmap)
+        for check in (self.checkBox_revCmap, self.checkBox_mesh,
+                      self.checkBox_global, self.checkBox_coast,
+                      self.checkBox_borders, self.checkBox_rivers,
+                      self.checkBox_lakes, self.checkBox_grid):
             check.stateChanged.connect(self.checked)
-        self.proj.currentIndexChanged.connect(self.selected_proj)
-        self.clon.editingFinished.connect(self.entered_clon)
-        self.quitButton.clicked.connect(QtWidgets.QApplication.quit)
+        self.comboBox_projection.currentIndexChanged.connect(self.selected_proj)
+        self.lineEdit_centralLon.editingFinished.connect(self.entered_clon)
+        self.pushButton_quit.clicked.connect(QtWidgets.QApplication.quit)
 
     def reinit(self):
         super().reinit()
@@ -921,31 +928,36 @@ class MapPanel(PlotPanel):
         self.iunlim = -1
         self.nunlim = 0
         columns = self.columns()
-        for combo in (self.v, self.lon, self.lat):
+        for combo in (self.comboBox_variable, self.comboBox_lon,
+                      self.comboBox_lat):
             _set_combo_items(combo, columns, "")
         for dims in (self.vd, self.lond, self.latd):
             dims.set_specs(empty_dimension_specs(self.maxdim))
-        self.vmin.setText("None")
-        self.vmax.setText("None")
-        self.tstep.setRange(0, 1)
-        self.tstep.setValue(0)
-        self.repeat.setCurrentText("repeat")
+        self.lineEdit_vmin.setText("None")
+        self.lineEdit_vmax.setText("None")
+        self.horizontalSlider_timeStep.setRange(0, 1)
+        self.horizontalSlider_timeStep.setValue(0)
+        self.comboBox_repeat.setCurrentText("repeat")
         if self.usex:
             if self.lonvar:
-                self.lon.setCurrentText(self.lonvar)
-                self.lond.set_specs(dimension_specs(self, self.lon.currentText(), "lon"))
+                self.comboBox_lon.setCurrentText(self.lonvar)
+                self.lond.set_specs(dimension_specs(
+                    self, self.comboBox_lon.currentText(), "lon"))
             if self.latvar:
-                self.lat.setCurrentText(self.latvar)
-                self.latd.set_specs(dimension_specs(self, self.lat.currentText(), "lat"))
+                self.comboBox_lat.setCurrentText(self.latvar)
+                self.latd.set_specs(dimension_specs(
+                    self, self.comboBox_lat.currentText(), "lat"))
         else:
             if any(self.lonvar):
                 lon = next(item for item in self.lonvar if item)
-                self.lon.setCurrentText(lon)
-                self.lond.set_specs(dimension_specs(self, self.lon.currentText(), "lon"))
+                self.comboBox_lon.setCurrentText(lon)
+                self.lond.set_specs(dimension_specs(
+                    self, self.comboBox_lon.currentText(), "lon"))
             if any(self.latvar):
                 lat = next(item for item in self.latvar if item)
-                self.lat.setCurrentText(lat)
-                self.latd.set_specs(dimension_specs(self, self.lat.currentText(), "lat"))
+                self.comboBox_lat.setCurrentText(lat)
+                self.latd.set_specs(dimension_specs(
+                    self, self.comboBox_lat.currentText(), "lat"))
         self._updating = False
 
     def checked(self):
@@ -956,8 +968,8 @@ class MapPanel(PlotPanel):
         if self._updating:
             return
         vmin, vmax = self.get_vminmax()
-        self.vmin.setText(str(vmin))
-        self.vmax.setText(str(vmax))
+        self.lineEdit_vmin.setText(str(vmin))
+        self.lineEdit_vmax.setText(str(vmax))
         self.redraw()
 
     def entered_clon(self):
@@ -986,30 +998,30 @@ class MapPanel(PlotPanel):
     def nrun_t(self):
         if self.timer.isActive():
             self.timer.stop()
-            self.nrun_time.setText(">")
+            self.pushButton_runForward.setText(">")
         else:
             self.anim_inc = 1
-            self.prun_time.setText("<")
-            self.nrun_time.setText("||")
+            self.pushButton_runBackward.setText("<")
+            self.pushButton_runForward.setText("||")
             self.timer.start()
 
     def prun_t(self):
         if self.timer.isActive():
             self.timer.stop()
-            self.prun_time.setText("<")
+            self.pushButton_runBackward.setText("<")
         else:
             self.anim_inc = -1
-            self.nrun_time.setText(">")
-            self.prun_time.setText("||")
+            self.pushButton_runForward.setText(">")
+            self.pushButton_runBackward.setText("||")
             self.timer.start()
 
     def next_t(self):
         it = self._current_time_index()
         if it < self.nunlim - 1:
             it += 1
-        elif self.repeat.currentText() == "repeat":
+        elif self.comboBox_repeat.currentText() == "repeat":
             it = 0
-        elif self.repeat.currentText() == "reflect" and it > 0:
+        elif self.comboBox_repeat.currentText() == "reflect" and it > 0:
             it -= 1
         self.set_tstep(it)
         self.update_frame(True)
@@ -1018,17 +1030,18 @@ class MapPanel(PlotPanel):
         it = self._current_time_index()
         if it > 0:
             it -= 1
-        elif self.repeat.currentText() == "repeat":
+        elif self.comboBox_repeat.currentText() == "repeat":
             it = max(self.nunlim - 1, 0)
-        elif self.repeat.currentText() == "reflect" and self.nunlim > 1:
+        elif (self.comboBox_repeat.currentText() == "reflect"
+              and self.nunlim > 1):
             it += 1
         self.set_tstep(it)
         self.update_frame(True)
 
     def _move_v(self, step):
-        idx = self.v.currentIndex() + step
-        if 0 < idx < self.v.count():
-            self.v.setCurrentIndex(idx)
+        idx = self.comboBox_variable.currentIndex() + step
+        if 0 < idx < self.comboBox_variable.count():
+            self.comboBox_variable.setCurrentIndex(idx)
 
     def next_v(self):
         self._move_v(1)
@@ -1039,31 +1052,33 @@ class MapPanel(PlotPanel):
     def selected_lat(self):
         if self._updating:
             return
-        self.inv_lat.setChecked(False)
-        self.latd.set_specs(dimension_specs(self, self.lat.currentText(), "lat"))
+        self.checkBox_invLat.setChecked(False)
+        self.latd.set_specs(
+            dimension_specs(self, self.comboBox_lat.currentText(), "lat"))
         self.redraw()
 
     def selected_lon(self):
         if self._updating:
             return
-        self.inv_lon.setChecked(False)
-        self.shift_lon.setChecked(False)
-        self.lond.set_specs(dimension_specs(self, self.lon.currentText(), "lon"))
+        self.checkBox_invLon.setChecked(False)
+        self.checkBox_shiftLon.setChecked(False)
+        self.lond.set_specs(
+            dimension_specs(self, self.comboBox_lon.currentText(), "lon"))
         self.redraw()
 
     def selected_v(self):
         if self._updating:
             return
-        v = self.v.currentText()
+        v = self.comboBox_variable.currentText()
         if not v:
             self.redraw()
             return
         self.set_unlim(v)
-        self.tstep.setRange(0, max(self.nunlim - 1, 0))
+        self.horizontalSlider_timeStep.setRange(0, max(self.nunlim - 1, 0))
         self.set_tstep(0)
         vmin, vmax = self.get_vminmax()
-        self.vmin.setText(str(vmin))
-        self.vmax.setText(str(vmax))
+        self.lineEdit_vmin.setText(str(vmin))
+        self.lineEdit_vmax.setText(str(vmax))
         self.vd.set_specs(dimension_specs(self, v, "var"))
         self.redraw()
 
@@ -1093,7 +1108,7 @@ class MapPanel(PlotPanel):
             return 0
 
     def get_vminmax(self):
-        v = self.v.currentText()
+        v = self.comboBox_variable.currentText()
         if not v:
             return 0, 1
         gz, vz = vardim2var(v, self.groups)
@@ -1102,7 +1117,7 @@ class MapPanel(PlotPanel):
             return 0, 1
         vv = selvar(self, vz)
         imiss = get_miss(self, vv)
-        if self.vall.isChecked() or (np.sum(vv.shape[:-2]) < 50):
+        if self.checkBox_allValues.isChecked() or (np.sum(vv.shape[:-2]) < 50):
             arr = set_miss(imiss, vv)
             return np.nanmin(arr), np.nanmax(arr)
         rng = np.random.default_rng()
@@ -1122,7 +1137,7 @@ class MapPanel(PlotPanel):
         return vmin, vmax
 
     def set_tstep(self, it):
-        v = self.v.currentText()
+        v = self.comboBox_variable.currentText()
         if not v:
             return
         gz, vz = vardim2var(v, self.groups)
@@ -1140,16 +1155,16 @@ class MapPanel(PlotPanel):
             has_unlim = False
         if dunlim and has_unlim and self.iunlim >= 0:
             self.vd.set_value(self.iunlim, it)
-            self.tstep.blockSignals(True)
-            self.tstep.setValue(int(it))
-            self.tstep.blockSignals(False)
+            self.horizontalSlider_timeStep.blockSignals(True)
+            self.horizontalSlider_timeStep.setValue(int(it))
+            self.horizontalSlider_timeStep.blockSignals(False)
             if self.usex:
-                self.timelbl.setText(str(time.values[it]))
+                self.label_timeValue.setText(str(time.values[it]))
             else:
                 try:
-                    self.timelbl.setText(str(np.around(time[it], 4)))
+                    self.label_timeValue.setText(str(np.around(time[it], 4)))
                 except TypeError:
-                    self.timelbl.setText(str(time[it]))
+                    self.label_timeValue.setText(str(time[it]))
 
     def set_unlim(self, v):
         gz, vz = vardim2var(v, self.groups)
@@ -1172,30 +1187,30 @@ class MapPanel(PlotPanel):
 
     def redraw(self):
         self.timer.stop()
-        self.nrun_time.setText(">")
-        self.prun_time.setText("<")
-        v = self.v.currentText()
-        trans_v = self.trans_v.isChecked()
-        vmin = _float_or_none(self.vmin.text())
-        vmax = _float_or_none(self.vmax.text())
-        x = self.lon.currentText()
-        y = self.lat.currentText()
-        inv_lon = self.inv_lon.isChecked()
-        inv_lat = self.inv_lat.isChecked()
-        shift_lon = self.shift_lon.isChecked()
-        cmap = self.cmap.currentText()
-        if self.rev_cmap.isChecked():
+        self.pushButton_runForward.setText(">")
+        self.pushButton_runBackward.setText("<")
+        v = self.comboBox_variable.currentText()
+        trans_v = self.checkBox_transVariable.isChecked()
+        vmin = _float_or_none(self.lineEdit_vmin.text())
+        vmax = _float_or_none(self.lineEdit_vmax.text())
+        x = self.comboBox_lon.currentText()
+        y = self.comboBox_lat.currentText()
+        inv_lon = self.checkBox_invLon.isChecked()
+        inv_lat = self.checkBox_invLat.isChecked()
+        shift_lon = self.checkBox_shiftLon.isChecked()
+        cmap = self.comboBox_cmap.currentText()
+        if self.checkBox_revCmap.isChecked():
             cmap += "_r"
-        mesh = self.mesh.isChecked()
-        self.iiglobal = self.iglobal.isChecked()
-        coast = self.coast.isChecked()
-        borders = self.borders.isChecked()
-        rivers = self.rivers.isChecked()
-        lakes = self.lakes.isChecked()
-        grid = self.grid.isChecked()
-        proj_name = self.proj.currentText()
+        mesh = self.checkBox_mesh.isChecked()
+        self.iiglobal = self.checkBox_global.isChecked()
+        coast = self.checkBox_coast.isChecked()
+        borders = self.checkBox_borders.isChecked()
+        rivers = self.checkBox_rivers.isChecked()
+        lakes = self.checkBox_lakes.isChecked()
+        grid = self.checkBox_grid.isChecked()
+        proj_name = self.comboBox_projection.currentText()
         self.iproj = self.iprojs[self.projs.index(proj_name)]
-        clon = self.clon.text()
+        clon = self.lineEdit_centralLon.text()
         vx = vy = vz = "None"
         if v:
             gz, vz = vardim2var(v, self.groups)
@@ -1357,13 +1372,13 @@ class MapPanel(PlotPanel):
         self.toolbar.update()
 
     def update_frame(self, isframe=False):
-        v = self.v.currentText()
+        v = self.comboBox_variable.currentText()
         if not v:
             return
-        trans_v = self.trans_v.isChecked()
-        mesh = self.mesh.isChecked()
-        rep = self.repeat.currentText()
-        shift_lon = self.shift_lon.isChecked()
+        trans_v = self.checkBox_transVariable.isChecked()
+        mesh = self.checkBox_mesh.isChecked()
+        rep = self.comboBox_repeat.currentText()
+        shift_lon = self.checkBox_shiftLon.isChecked()
         gz, vz = vardim2var(v, self.groups)
         if self.usex:
             if vz == self.tname:
@@ -1382,7 +1397,7 @@ class MapPanel(PlotPanel):
                     it += self.anim_inc
                 else:
                     self.timer.stop()
-                    self.nrun_time.setText(">")
+                    self.pushButton_runForward.setText(">")
             elif self.anim_inc == -1 and it == 0:
                 if rep == "repeat":
                     it = self.nunlim - 1
@@ -1391,7 +1406,7 @@ class MapPanel(PlotPanel):
                     it += self.anim_inc
                 else:
                     self.timer.stop()
-                    self.prun_time.setText("<")
+                    self.pushButton_runBackward.setText("<")
             else:
                 it += self.anim_inc
         self.set_tstep(it)
@@ -1422,32 +1437,39 @@ class MapPanel(PlotPanel):
         self.canvas.draw_idle()
 
 
-class NcvMainWindow(QtWidgets.QMainWindow):
+class NcvMainWindow(QtWidgets.QMainWindow, Ui_NcvMainWindow):
     instances = []
 
     def __init__(self, session: NcvSession, parent=None):
         super().__init__(parent)
-        _load_designer_ui("main_window.ui", self)
+        self.setupUi(self)
         self.session = session
         self._children = []
-        tab_labels = {
-            self.tabs.widget(i).objectName(): self.tabs.tabText(i)
-            for i in range(self.tabs.count())
-        }
-        while self.tabs.count():
-            self.tabs.removeTab(0)
+
+        def tab_text(page, fallback):
+            index = self.tabWidget_main.indexOf(page)
+            return self.tabWidget_main.tabText(index) if index >= 0 else fallback
+
+        scatter_label = tab_text(self.tab_scatterPlot, "Scatter/Line")
+        contour_label = tab_text(self.tab_contourPlot, "Contour")
+        map_label = tab_text(self.tab_mapPlot, "Map")
+        for page in (self.tab_scatterPlot, self.tab_contourPlot,
+                     self.tab_mapPlot):
+            index = self.tabWidget_main.indexOf(page)
+            if index >= 0:
+                self.tabWidget_main.removeTab(index)
+
         self.scatter = ScatterPanel(self, session)
         self.contour = ContourPanel(self, session)
-        self.tabs.addTab(
-            self.scatter, tab_labels.get("scatterTab", "Scatter/Line"))
-        self.tabs.addTab(
-            self.contour, tab_labels.get("contourTab", "Contour"))
         if ensure_cartopy():
             self.map = MapPanel(self, session)
         else:
             self.map = MapUnavailablePanel(CARTOPY_IMPORT_ERROR)
-        self.tabs.addTab(self.map, tab_labels.get("mapTab", "Map"))
-        self.tabs.currentChanged.connect(self._tab_changed)
+        self.tabWidget_main.insertTab(0, self.scatter, scatter_label)
+        self.tabWidget_main.insertTab(1, self.contour, contour_label)
+        self.tabWidget_main.insertTab(2, self.map, map_label)
+        self.tabWidget_main.setCurrentIndex(0)
+        self.tabWidget_main.currentChanged.connect(self._tab_changed)
         self.setWindowIcon(QtGui.QIcon(_resource_path("images", "ncvue_icon.png")))
         w, h, x, y = _window_geometry()
         self.setGeometry(x, y, w, h)
@@ -1478,10 +1500,10 @@ class NcvMainWindow(QtWidgets.QMainWindow):
         except Exception:
             mapfirst = False
         if mapfirst:
-            self.tabs.setCurrentIndex(2)
+            self.tabWidget_main.setCurrentIndex(2)
 
     def _tab_changed(self, _index):
-        panel = self.tabs.currentWidget()
+        panel = self.tabWidget_main.currentWidget()
         if hasattr(panel, "redraw"):
             panel.redraw()
 
@@ -1507,7 +1529,7 @@ class NcvMainWindow(QtWidgets.QMainWindow):
         for panel in (self.scatter, self.contour, self.map):
             panel.reinit()
         self.select_default_tab()
-        current = self.tabs.currentWidget()
+        current = self.tabWidget_main.currentWidget()
         if hasattr(current, "redraw"):
             current.redraw()
 

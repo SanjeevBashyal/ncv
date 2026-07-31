@@ -104,18 +104,19 @@ def test_qt_window_smoke_with_generated_netcdf(tmp_path):
     temp = next(col for col in session.cols if col.startswith("temp "))
 
     assert win.objectName() == "NcvMainWindow"
-    assert win.tabs.count() == 3
-    assert win.tabs.widget(0) is win.scatter
-    assert win.tabs.widget(1) is win.contour
-    assert win.scatter.y.objectName() == "y"
-    assert win.contour.z.objectName() == "z"
+    assert win.tabWidget_main.count() == 4
+    assert win.tabWidget_main.widget(0) is win.scatter
+    assert win.tabWidget_main.widget(1) is win.contour
+    assert win.tabWidget_main.widget(3) is win.tab_matrixDisplay
+    assert win.scatter.comboBox_y.objectName() == "comboBox_y"
+    assert win.contour.comboBox_z.objectName() == "comboBox_z"
 
-    win.scatter.y.setCurrentText(temp)
+    win.scatter.comboBox_y.setCurrentText(temp)
     win.scatter.selected_y()
     win.scatter.redraw()
     assert len(win.scatter.line_y) == 1
 
-    win.contour.z.setCurrentText(temp)
+    win.contour.comboBox_z.setCurrentText(temp)
     win.contour.selected_z()
     assert len(win.contour.figure.axes) >= 1
 
@@ -130,6 +131,11 @@ def test_qt_window_smoke_with_generated_netcdf(tmp_path):
 
 def test_qt_designer_forms_compile():
     from PyQt5 import uic
+    from ncv.pyui.ui_contour_panel import Ui_ContourPanel
+    from ncv.pyui.ui_main_window import Ui_NcvMainWindow
+    from ncv.pyui.ui_map_panel import Ui_MapPanel
+    from ncv.pyui.ui_map_unavailable import Ui_MapUnavailablePanel
+    from ncv.pyui.ui_scatter_panel import Ui_ScatterPanel
 
     ui_dir = Path(__file__).parents[1] / "ncv" / "ui"
     forms = {
@@ -145,6 +151,14 @@ def test_qt_designer_forms_compile():
         form_class, base_class = uic.loadUiType(str(ui_dir / form))
         assert form_class is not None
         assert base_class is not None
+
+    assert all(ui_class is not None for ui_class in (
+        Ui_NcvMainWindow,
+        Ui_ScatterPanel,
+        Ui_ContourPanel,
+        Ui_MapPanel,
+        Ui_MapUnavailablePanel,
+    ))
 
 
 def test_cli_help_uses_ncv_entrypoint():
