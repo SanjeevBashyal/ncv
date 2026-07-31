@@ -5,11 +5,11 @@ from matplotlib.figure import Figure
 import numpy as np
 
 from .dimensions import dimension_specs, empty_dimension_specs
-from .ncvcommon import DimensionControlRow, PlotPanel
-from .ncvcommon import float_or_none, set_combo_items
-from .ncvutils import format_coord_contour, parse_entry, selvar
+from .ncvcommon import DimensionControlRow, PlotPanel, parse_limits
+from .ncvcommon import set_combo_items
+from .ncvutils import format_coord_contour, selvar
 from .ncvutils import set_axis_label, vardim2var
-from .pyui.ui_contour_panel import Ui_ContourPanel
+from .pyui.ui_contour_panel import Ui_widget_ContourPanel as Ui_ContourPanel
 from .qt_compat import FigureCanvasQTAgg, NavigationToolbar2QT
 from .qt_compat import QtWidgets
 
@@ -40,19 +40,9 @@ class ContourPanel(PlotPanel, Ui_ContourPanel):
         self.yDimensionsLayout.addWidget(self.yd)
         self.populate_cmap_combo(self.comboBox_cmap)
 
-        for name, callback in (
-            ("pushButton_prevZ", self.prev_z),
-            ("pushButton_nextZ", self.next_z),
-        ):
-            button = getattr(self, name, None)
-            if button is not None:
-                button.clicked.connect(callback)
         self.comboBox_z.currentIndexChanged.connect(self.selected_z)
-        self.checkBox_transZ.stateChanged.connect(self.checked)
-        for name in ("lineEdit_zlim", "lineEdit_zmin", "lineEdit_zmax"):
-            entry = getattr(self, name, None)
-            if entry is not None:
-                entry.editingFinished.connect(self.entered_z)
+        self.checkBox_transposeZ.stateChanged.connect(self.checked)
+        self.lineEdit_zlim.editingFinished.connect(self.entered_z)
         self.zd.changed.connect(self.spinned_z)
         self.comboBox_x.currentIndexChanged.connect(self.selected_x)
         self.checkBox_invX.stateChanged.connect(self.checked)
@@ -100,34 +90,11 @@ class ContourPanel(PlotPanel, Ui_ContourPanel):
     def selected_cmap(self):
         self.checked()
 
-    def _move_z(self, step):
-        index = self.comboBox_z.currentIndex() + step
-        if 0 < index < self.comboBox_z.count():
-            self.comboBox_z.setCurrentIndex(index)
-
-    def next_z(self):
-        self._move_z(1)
-
-    def prev_z(self):
-        self._move_z(-1)
-
     def _reset_z_limits(self):
-        for name in ("lineEdit_zlim", "lineEdit_zmin", "lineEdit_zmax"):
-            entry = getattr(self, name, None)
-            if entry is not None:
-                entry.setText("None")
+        self.lineEdit_zlim.setText("None")
 
     def _z_limits(self):
-        entry = getattr(self, "lineEdit_zlim", None)
-        if entry is not None:
-            limits = parse_entry(entry.text())
-            if isinstance(limits, (list, tuple)) and len(limits) == 2:
-                return limits
-            return None, None
-        return (
-            float_or_none(self.lineEdit_zmin.text()),
-            float_or_none(self.lineEdit_zmax.text()),
-        )
+        return parse_limits(self.lineEdit_zlim.text())
 
     def selected_x(self):
         if self._updating:
@@ -161,7 +128,7 @@ class ContourPanel(PlotPanel, Ui_ContourPanel):
 
     def redraw(self):
         z = self.comboBox_z.currentText()
-        trans_z = self.checkBox_transZ.isChecked()
+        trans_z = self.checkBox_transposeZ.isChecked()
         zmin, zmax = self._z_limits()
         x = self.comboBox_x.currentText()
         y = self.comboBox_y.currentText()

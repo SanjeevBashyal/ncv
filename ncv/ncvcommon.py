@@ -9,7 +9,7 @@ import numpy as np
 
 from .dimensions import dimension_values
 from .ncvmethods import get_miss
-from .ncvutils import get_slice_values, set_miss
+from .ncvutils import get_slice_values, parse_entry, set_miss
 from .qt_compat import QtCore, QtGui, QtWidgets
 from .session import HAVE_XARRAY, NcvSession
 
@@ -18,6 +18,7 @@ __all__ = [
     "DimensionControlRow",
     "PlotPanel",
     "float_or_none",
+    "parse_limits",
     "resource_path",
     "set_combo_items",
 ]
@@ -28,12 +29,25 @@ def resource_path(*parts: str) -> str:
 
 
 def float_or_none(value: str):
-    if value == "None":
+    if value is None or str(value).strip() == "None":
         return None
     try:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def parse_limits(text):
+    """Return a ``(minimum, maximum)`` pair from a limit entry."""
+    value = str(text).strip()
+    if value == "None":
+        return None, None
+    if value[:1] in "([" and value[-1:] in ")]":
+        value = value[1:-1]
+    parts = value.split(",")
+    if len(parts) != 2:
+        return None, None
+    return tuple(parse_entry(part.strip()) for part in parts)
 
 
 def set_combo_items(combo, values, current=None):
@@ -93,7 +107,12 @@ class DimensionControlRow(QtWidgets.QWidget):
 
     def set_value(self, index, value):
         if 0 <= index < len(self.selectors):
-            self.selectors[index].setCurrentText(str(value))
+            selector = self.selectors[index]
+            blocked = selector.blockSignals(True)
+            try:
+                selector.setCurrentText(str(value))
+            finally:
+                selector.blockSignals(blocked)
 
 
 class PlotPanel(QtWidgets.QWidget):

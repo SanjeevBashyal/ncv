@@ -373,6 +373,9 @@
        <layout class="QHBoxLayout" name="horizontalLayout_displayOptions">
         <item>
          <widget class="QLabel" name="label_cmap">
+          <property name="toolTip">
+           <string>Color map</string>
+          </property>
           <property name="text">
            <string>cmap</string>
           </property>
@@ -390,6 +393,9 @@
         </item>
         <item>
          <widget class="QCheckBox" name="checkBox_revCmap">
+          <property name="toolTip">
+           <string>Reverse color map</string>
+          </property>
           <property name="text">
            <string>reverse cmap</string>
           </property>
@@ -397,6 +403,9 @@
         </item>
         <item>
          <widget class="QCheckBox" name="checkBox_mesh">
+          <property name="toolTip">
+           <string>Show gridded else smooth</string>
+          </property>
           <property name="text">
            <string>mesh</string>
           </property>
@@ -407,6 +416,9 @@
         </item>
         <item>
          <widget class="QCheckBox" name="checkBox_grid">
+          <property name="toolTip">
+           <string>Show grids</string>
+          </property>
           <property name="text">
            <string>grid</string>
           </property>
@@ -425,37 +437,17 @@
           </property>
          </spacer>
         </item>
+        <item>
+         <widget class="QPushButton" name="pushButton_quit">
+          <property name="text">
+           <string>Quit</string>
+          </property>
+         </widget>
+        </item>
        </layout>
       </item>
      </layout>
     </widget>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="horizontalLayout_quit">
-     <property name="topMargin">
-      <number>0</number>
-     </property>
-     <item>
-      <spacer name="horizontalSpacer_quit">
-       <property name="orientation">
-        <enum>Qt::Horizontal</enum>
-       </property>
-       <property name="sizeHint" stdset="0">
-        <size>
-         <width>40</width>
-         <height>20</height>
-        </size>
-       </property>
-      </spacer>
-     </item>
-     <item>
-      <widget class="QPushButton" name="pushButton_quit">
-       <property name="text">
-        <string>Quit</string>
-       </property>
-      </widget>
-     </item>
-    </layout>
    </item>
   </layout>
  </widget>
