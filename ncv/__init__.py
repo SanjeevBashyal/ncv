@@ -1,10 +1,4 @@
-"""
-ncv: a quick NetCDF viewer.
-
-The public API is Qt-first.  Legacy Tk modules remain in the source tree during
-the port, but they are not imported eagerly so optional dependencies such as
-Cartopy cannot break ``import ncv``.
-"""
+"""ncv: a quick PyQt5 NetCDF viewer."""
 from __future__ import annotations
 
 from .ncvutils import DIMMETHODS
