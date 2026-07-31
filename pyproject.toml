@@ -29,7 +29,7 @@ full = ["xarray", "cartopy"]
 ncv = "ncv.__main__:main"
 
 [tool.setuptools]
-packages = ["ncv"]
+packages = ["ncv", "ncv.pyui"]
 
 [tool.setuptools.package-data]
 ncv = [

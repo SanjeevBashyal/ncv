@@ -8,16 +8,16 @@
   <layout class="QVBoxLayout" name="mainLayout">
    <item>
     <layout class="QHBoxLayout" name="fileControlsLayout">
-     <item><widget class="QPushButton" name="openFileButton"><property name="toolTip"><string>Open new NetCDF file(s)</string></property><property name="text"><string>Open File</string></property></widget></item>
-     <item><widget class="QPushButton" name="openXarrayButton"><property name="toolTip"><string>Open new NetCDF file(s) with xarray</string></property><property name="text"><string>Open xarray</string></property></widget></item>
-     <item><widget class="QPushButton" name="newWindowButton"><property name="toolTip"><string>Open a secondary ncv window</string></property><property name="text"><string>New Window</string></property></widget></item>
+     <item><widget class="QPushButton" name="pushButton_openFile"><property name="toolTip"><string>Open new NetCDF file(s)</string></property><property name="text"><string>Open File</string></property></widget></item>
+     <item><widget class="QPushButton" name="pushButton_openXarray"><property name="toolTip"><string>Open new NetCDF file(s) with xarray</string></property><property name="text"><string>Open xarray</string></property></widget></item>
+     <item><widget class="QPushButton" name="pushButton_newWindow"><property name="toolTip"><string>Open a secondary ncv window</string></property><property name="text"><string>New Window</string></property></widget></item>
      <item><spacer name="fileControlsSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
-     <item><widget class="QLabel" name="timeLabel"><property name="text"><string>Time:</string></property></widget></item>
-     <item><widget class="QLabel" name="timelbl"><property name="text"><string/></property></widget></item>
+     <item><widget class="QLabel" name="label_time"><property name="text"><string>Time:</string></property></widget></item>
+     <item><widget class="QLabel" name="label_timeValue"><property name="text"><string/></property></widget></item>
     </layout>
    </item>
    <item>
-    <widget class="QWidget" name="plotHost" native="true">
+    <widget class="QWidget" name="widget_plotHost" native="true">
      <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Expanding"><horstretch>0</horstretch><verstretch>1</verstretch></sizepolicy></property>
      <property name="minimumSize"><size><width>0</width><height>240</height></size></property>
      <layout class="QVBoxLayout" name="plotLayout">
@@ -29,17 +29,17 @@
     <layout class="QVBoxLayout" name="controlsLayout">
      <item>
       <layout class="QHBoxLayout" name="timeControlsLayout">
-       <item><widget class="QLabel" name="stepLabel"><property name="text"><string>step</string></property></widget></item>
-       <item><widget class="QSlider" name="tstep"><property name="maximum"><number>1</number></property><property name="orientation"><enum>Qt::Horizontal</enum></property></widget></item>
-       <item><widget class="QPushButton" name="first_time"><property name="minimumSize"><size><width>38</width><height>0</height></size></property><property name="maximumSize"><size><width>38</width><height>16777215</height></size></property><property name="text"><string>|&lt;&lt;</string></property></widget></item>
-       <item><widget class="QPushButton" name="prev_time"><property name="minimumSize"><size><width>38</width><height>0</height></size></property><property name="maximumSize"><size><width>38</width><height>16777215</height></size></property><property name="text"><string>|&lt;</string></property></widget></item>
-       <item><widget class="QPushButton" name="prun_time"><property name="minimumSize"><size><width>38</width><height>0</height></size></property><property name="maximumSize"><size><width>38</width><height>16777215</height></size></property><property name="text"><string>&lt;</string></property></widget></item>
-       <item><widget class="QPushButton" name="nrun_time"><property name="minimumSize"><size><width>38</width><height>0</height></size></property><property name="maximumSize"><size><width>38</width><height>16777215</height></size></property><property name="text"><string>&gt;</string></property></widget></item>
-       <item><widget class="QPushButton" name="next_time"><property name="minimumSize"><size><width>38</width><height>0</height></size></property><property name="maximumSize"><size><width>38</width><height>16777215</height></size></property><property name="text"><string>&gt;|</string></property></widget></item>
-       <item><widget class="QPushButton" name="last_time"><property name="minimumSize"><size><width>38</width><height>0</height></size></property><property name="maximumSize"><size><width>38</width><height>16777215</height></size></property><property name="text"><string>&gt;&gt;|</string></property></widget></item>
-       <item><widget class="QLabel" name="repeatLabel"><property name="text"><string>repeat</string></property></widget></item>
+       <item><widget class="QLabel" name="label_step"><property name="text"><string>step</string></property></widget></item>
+       <item><widget class="QSlider" name="horizontalSlider_timeStep"><property name="maximum"><number>1</number></property><property name="orientation"><enum>Qt::Horizontal</enum></property></widget></item>
+       <item><widget class="QPushButton" name="pushButton_firstTime"><property name="minimumSize"><size><width>38</width><height>0</height></size></property><property name="maximumSize"><size><width>38</width><height>16777215</height></size></property><property name="text"><string>|&lt;&lt;</string></property></widget></item>
+       <item><widget class="QPushButton" name="pushButton_prevTime"><property name="minimumSize"><size><width>38</width><height>0</height></size></property><property name="maximumSize"><size><width>38</width><height>16777215</height></size></property><property name="text"><string>|&lt;</string></property></widget></item>
+       <item><widget class="QPushButton" name="pushButton_runBackward"><property name="minimumSize"><size><width>38</width><height>0</height></size></property><property name="maximumSize"><size><width>38</width><height>16777215</height></size></property><property name="text"><string>&lt;</string></property></widget></item>
+       <item><widget class="QPushButton" name="pushButton_runForward"><property name="minimumSize"><size><width>38</width><height>0</height></size></property><property name="maximumSize"><size><width>38</width><height>16777215</height></size></property><property name="text"><string>&gt;</string></property></widget></item>
+       <item><widget class="QPushButton" name="pushButton_nextTime"><property name="minimumSize"><size><width>38</width><height>0</height></size></property><property name="maximumSize"><size><width>38</width><height>16777215</height></size></property><property name="text"><string>&gt;|</string></property></widget></item>
+       <item><widget class="QPushButton" name="pushButton_lastTime"><property name="minimumSize"><size><width>38</width><height>0</height></size></property><property name="maximumSize"><size><width>38</width><height>16777215</height></size></property><property name="text"><string>&gt;&gt;|</string></property></widget></item>
+       <item><widget class="QLabel" name="label_repeat"><property name="text"><string>repeat</string></property></widget></item>
        <item>
-        <widget class="QComboBox" name="repeat">
+        <widget class="QComboBox" name="comboBox_repeat">
          <property name="sizeAdjustPolicy"><enum>QComboBox::AdjustToContents</enum></property>
          <property name="currentIndex"><number>1</number></property>
          <item><property name="text"><string>once</string></property></item>
@@ -51,63 +51,63 @@
      </item>
      <item>
       <layout class="QHBoxLayout" name="variableControlsLayout">
-       <item><widget class="QLabel" name="varLabel"><property name="text"><string>var</string></property></widget></item>
-       <item><widget class="QPushButton" name="prevVarButton"><property name="minimumSize"><size><width>38</width><height>0</height></size></property><property name="maximumSize"><size><width>38</width><height>16777215</height></size></property><property name="text"><string>&lt;</string></property></widget></item>
-       <item><widget class="QPushButton" name="nextVarButton"><property name="minimumSize"><size><width>38</width><height>0</height></size></property><property name="maximumSize"><size><width>38</width><height>16777215</height></size></property><property name="text"><string>&gt;</string></property></widget></item>
-       <item><widget class="QComboBox" name="v"><property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="toolTip"><string>Choose the plotted variable</string></property><property name="sizeAdjustPolicy"><enum>QComboBox::AdjustToContents</enum></property></widget></item>
-       <item><widget class="QCheckBox" name="trans_v"><property name="text"><string>transpose var</string></property></widget></item>
-       <item><widget class="QLabel" name="vminLabel"><property name="text"><string>vmin</string></property></widget></item>
-       <item><widget class="QLineEdit" name="vmin"><property name="maximumSize"><size><width>110</width><height>16777215</height></size></property><property name="text"><string>0</string></property></widget></item>
-       <item><widget class="QLabel" name="vmaxLabel"><property name="text"><string>vmax</string></property></widget></item>
-       <item><widget class="QLineEdit" name="vmax"><property name="maximumSize"><size><width>110</width><height>16777215</height></size></property><property name="text"><string>1</string></property></widget></item>
-       <item><widget class="QCheckBox" name="vall"><property name="text"><string>all</string></property></widget></item>
+       <item><widget class="QLabel" name="label_variable"><property name="text"><string>var</string></property></widget></item>
+       <item><widget class="QPushButton" name="pushButton_prevVariable"><property name="minimumSize"><size><width>38</width><height>0</height></size></property><property name="maximumSize"><size><width>38</width><height>16777215</height></size></property><property name="text"><string>&lt;</string></property></widget></item>
+       <item><widget class="QPushButton" name="pushButton_nextVariable"><property name="minimumSize"><size><width>38</width><height>0</height></size></property><property name="maximumSize"><size><width>38</width><height>16777215</height></size></property><property name="text"><string>&gt;</string></property></widget></item>
+       <item><widget class="QComboBox" name="comboBox_variable"><property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="toolTip"><string>Choose the plotted variable</string></property><property name="sizeAdjustPolicy"><enum>QComboBox::AdjustToContents</enum></property></widget></item>
+       <item><widget class="QCheckBox" name="checkBox_transVariable"><property name="text"><string>transpose var</string></property></widget></item>
+       <item><widget class="QLabel" name="label_vmin"><property name="text"><string>vmin</string></property></widget></item>
+       <item><widget class="QLineEdit" name="lineEdit_vmin"><property name="maximumSize"><size><width>110</width><height>16777215</height></size></property><property name="text"><string>0</string></property></widget></item>
+       <item><widget class="QLabel" name="label_vmax"><property name="text"><string>vmax</string></property></widget></item>
+       <item><widget class="QLineEdit" name="lineEdit_vmax"><property name="maximumSize"><size><width>110</width><height>16777215</height></size></property><property name="text"><string>1</string></property></widget></item>
+       <item><widget class="QCheckBox" name="checkBox_allValues"><property name="text"><string>all</string></property></widget></item>
        <item><spacer name="variableControlsSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
       </layout>
      </item>
-     <item><widget class="QWidget" name="vDimensionsHost" native="true"><layout class="QVBoxLayout" name="vDimensionsLayout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property></layout></widget></item>
+     <item><widget class="QWidget" name="widget_vDimensionsHost" native="true"><layout class="QVBoxLayout" name="vDimensionsLayout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property></layout></widget></item>
      <item>
       <layout class="QHBoxLayout" name="coordinatesLayout">
-       <item><widget class="QLabel" name="lonLabel"><property name="text"><string>lon</string></property></widget></item>
-       <item><widget class="QComboBox" name="lon"><property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="sizeAdjustPolicy"><enum>QComboBox::AdjustToContents</enum></property></widget></item>
-       <item><widget class="QCheckBox" name="inv_lon"><property name="text"><string>invert lon</string></property></widget></item>
-       <item><widget class="QCheckBox" name="shift_lon"><property name="text"><string>shift lon/2</string></property></widget></item>
+       <item><widget class="QLabel" name="label_lon"><property name="text"><string>lon</string></property></widget></item>
+       <item><widget class="QComboBox" name="comboBox_lon"><property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="sizeAdjustPolicy"><enum>QComboBox::AdjustToContents</enum></property></widget></item>
+       <item><widget class="QCheckBox" name="checkBox_invLon"><property name="text"><string>invert lon</string></property></widget></item>
+       <item><widget class="QCheckBox" name="checkBox_shiftLon"><property name="text"><string>shift lon/2</string></property></widget></item>
        <item><spacer name="coordinatesGap"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Fixed</enum></property><property name="sizeHint" stdset="0"><size><width>16</width><height>20</height></size></property></spacer></item>
-       <item><widget class="QLabel" name="latLabel"><property name="text"><string>lat</string></property></widget></item>
-       <item><widget class="QComboBox" name="lat"><property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="sizeAdjustPolicy"><enum>QComboBox::AdjustToContents</enum></property></widget></item>
-       <item><widget class="QCheckBox" name="inv_lat"><property name="text"><string>invert lat</string></property></widget></item>
+       <item><widget class="QLabel" name="label_lat"><property name="text"><string>lat</string></property></widget></item>
+       <item><widget class="QComboBox" name="comboBox_lat"><property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>1</horstretch><verstretch>0</verstretch></sizepolicy></property><property name="sizeAdjustPolicy"><enum>QComboBox::AdjustToContents</enum></property></widget></item>
+       <item><widget class="QCheckBox" name="checkBox_invLat"><property name="text"><string>invert lat</string></property></widget></item>
        <item><spacer name="coordinatesSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
       </layout>
      </item>
      <item>
       <layout class="QHBoxLayout" name="coordinateDimensionsRow">
-       <item><widget class="QWidget" name="lonDimensionsHost" native="true"><layout class="QVBoxLayout" name="lonDimensionsLayout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property></layout></widget></item>
+       <item><widget class="QWidget" name="widget_lonDimensionsHost" native="true"><layout class="QVBoxLayout" name="lonDimensionsLayout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property></layout></widget></item>
        <item><spacer name="coordinateDimensionsGap"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeType"><enum>QSizePolicy::Fixed</enum></property><property name="sizeHint" stdset="0"><size><width>16</width><height>20</height></size></property></spacer></item>
-       <item><widget class="QWidget" name="latDimensionsHost" native="true"><layout class="QVBoxLayout" name="latDimensionsLayout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property></layout></widget></item>
+       <item><widget class="QWidget" name="widget_latDimensionsHost" native="true"><layout class="QVBoxLayout" name="latDimensionsLayout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property></layout></widget></item>
       </layout>
      </item>
      <item>
       <layout class="QHBoxLayout" name="mapOptionsLayout">
-       <item><widget class="QLabel" name="cmapLabel"><property name="text"><string>cmap</string></property></widget></item>
-       <item><widget class="QComboBox" name="cmap"><property name="toolTip"><string>Choose the colormap</string></property><property name="sizeAdjustPolicy"><enum>QComboBox::AdjustToContents</enum></property></widget></item>
-       <item><widget class="QCheckBox" name="rev_cmap"><property name="text"><string>reverse cmap</string></property></widget></item>
-       <item><widget class="QCheckBox" name="mesh"><property name="text"><string>mesh</string></property><property name="checked"><bool>true</bool></property></widget></item>
-       <item><widget class="QCheckBox" name="iglobal"><property name="text"><string>global</string></property></widget></item>
-       <item><widget class="QCheckBox" name="coast"><property name="text"><string>coast</string></property><property name="checked"><bool>true</bool></property></widget></item>
-       <item><widget class="QCheckBox" name="borders"><property name="text"><string>borders</string></property></widget></item>
-       <item><widget class="QCheckBox" name="rivers"><property name="text"><string>rivers</string></property></widget></item>
-       <item><widget class="QCheckBox" name="lakes"><property name="text"><string>lakes</string></property></widget></item>
-       <item><widget class="QCheckBox" name="grid"><property name="text"><string>grid</string></property></widget></item>
+       <item><widget class="QLabel" name="label_cmap"><property name="text"><string>cmap</string></property></widget></item>
+       <item><widget class="QComboBox" name="comboBox_cmap"><property name="toolTip"><string>Choose the colormap</string></property><property name="sizeAdjustPolicy"><enum>QComboBox::AdjustToContents</enum></property></widget></item>
+       <item><widget class="QCheckBox" name="checkBox_revCmap"><property name="text"><string>reverse cmap</string></property></widget></item>
+       <item><widget class="QCheckBox" name="checkBox_mesh"><property name="text"><string>mesh</string></property><property name="checked"><bool>true</bool></property></widget></item>
+       <item><widget class="QCheckBox" name="checkBox_global"><property name="text"><string>global</string></property></widget></item>
+       <item><widget class="QCheckBox" name="checkBox_coast"><property name="text"><string>coast</string></property><property name="checked"><bool>true</bool></property></widget></item>
+       <item><widget class="QCheckBox" name="checkBox_borders"><property name="text"><string>borders</string></property></widget></item>
+       <item><widget class="QCheckBox" name="checkBox_rivers"><property name="text"><string>rivers</string></property></widget></item>
+       <item><widget class="QCheckBox" name="checkBox_lakes"><property name="text"><string>lakes</string></property></widget></item>
+       <item><widget class="QCheckBox" name="checkBox_grid"><property name="text"><string>grid</string></property></widget></item>
        <item><spacer name="mapOptionsSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
       </layout>
      </item>
      <item>
       <layout class="QHBoxLayout" name="projectionLayout">
-       <item><widget class="QLabel" name="projectionLabel"><property name="text"><string>projection</string></property></widget></item>
-       <item><widget class="QComboBox" name="proj"><property name="sizeAdjustPolicy"><enum>QComboBox::AdjustToContents</enum></property></widget></item>
-       <item><widget class="QLabel" name="centralLonLabel"><property name="text"><string>central lon</string></property></widget></item>
-       <item><widget class="QLineEdit" name="clon"><property name="maximumSize"><size><width>80</width><height>16777215</height></size></property><property name="text"><string>None</string></property></widget></item>
+       <item><widget class="QLabel" name="label_projection"><property name="text"><string>projection</string></property></widget></item>
+       <item><widget class="QComboBox" name="comboBox_projection"><property name="sizeAdjustPolicy"><enum>QComboBox::AdjustToContents</enum></property></widget></item>
+       <item><widget class="QLabel" name="label_centralLon"><property name="text"><string>central lon</string></property></widget></item>
+       <item><widget class="QLineEdit" name="lineEdit_centralLon"><property name="maximumSize"><size><width>80</width><height>16777215</height></size></property><property name="text"><string>None</string></property></widget></item>
        <item><spacer name="projectionSpacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
-       <item><widget class="QPushButton" name="quitButton"><property name="text"><string>Quit</string></property></widget></item>
+       <item><widget class="QPushButton" name="pushButton_quit"><property name="text"><string>Quit</string></property></widget></item>
       </layout>
      </item>
     </layout>
