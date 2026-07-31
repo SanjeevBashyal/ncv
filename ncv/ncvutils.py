@@ -1,8 +1,8 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
-Utility functions for ncvue.
+Toolkit-neutral utility functions for ncv.
 
-The utility functions do not depend on the ncvue class.
+The utility functions do not depend on the GUI classes.
 Functions depending on the class are in ncvmethods.
 
 This module was written by Matthias Cuntz while at Institut National de
@@ -19,7 +19,6 @@ The following functions are provided:
 .. autosummary::
    DIMMETHODS
    add_cyclic
-   clone_ncvmain
    format_coord_contour
    format_coord_map
    format_coord_scatter
@@ -42,10 +41,7 @@ History
      Dec 2020, Matthias Cuntz
    * Added arithmetics to apply on axis/dimensions such as mean, std, etc.,
      Dec 2020, Matthias Cuntz
-   * Added clone_ncvmain, removing its own module, Dec 2020, Matthias Cuntz
    * Added SEPCHAR and DIMMETHODS, Jan 2021, Matthias Cuntz
-   * Pass only ncvMain widget to clone_ncvmain, Jan 2021, Matthias Cuntz
-   * Pass only root widget to clone_ncvmain, Jan 2021, Matthias Cuntz
    * Set correct missing value for date variable in numpy's datetime64[ms]
      format May 2021, Matthias Cuntz
    * Added format_coord functions for scatter, contour, and map,
@@ -59,7 +55,6 @@ History
    * Add selvar to allow multiple netcdf files, Jan 2024, Matthias Cuntz
    * Remove [ms] from check for datetime in format_coord on axes,
      Oct 2024, Matthias Cuntz
-   * Use CustomTkinter in clone_ncvmain if installed, Nov 2024, Matthias Cuntz
    * Increased digits in format_coord_scatter, Jan 2025, Matthias Cuntz
    * Increased digits in format_coord_contour and format_coord_map,
      Jan 2025, Matthias Cuntz
@@ -68,17 +63,10 @@ History
      Feb 2025, Matthias Cuntz
    * Allow xarray in selvar, Feb 2025, Matthias Cuntz
    * Add parse_entry from dfvutils, Jun 2025, Matthias Cuntz
-   * Use ncvScreen for window sizes, Nov 2025, Matthias Cuntz
    * Copy parse_entry from dfvutils again, deducing datetime string,
      Nov 2025, Matthias Cuntz
-   * Use set_window_geometry from dfvScreen, Nov 2025, Matthias Cuntz
 
 """
-import tkinter as tk
-try:
-    from customtkinter import CTkToplevel as Toplevel
-except ModuleNotFoundError:
-    from tkinter import Toplevel
 from math import isfinite
 import numpy as np
 import matplotlib.dates as mpld
@@ -91,11 +79,10 @@ try:
     ihavex = True
 except ModuleNotFoundError:
     ihavex = False
-from .ncvscreen import ncvScreen
 
 
 __all__ = ['DIMMETHODS',
-           'add_cyclic', 'has_cyclic', 'clone_ncvmain',
+           'add_cyclic', 'has_cyclic',
            'format_coord_contour', 'format_coord_map', 'format_coord_scatter',
            'get_slice', 'get_slice_values', 'get_standard_name', 'get_units',
            'list_intersection', 'parse_entry',
@@ -435,59 +422,6 @@ def add_cyclic(data, x=None, y=None, axis=-1,
     return out_data, out_x, out_y
 
 
-def clone_ncvmain(widget):
-    """
-    Duplicate the main ncvue window.
-
-    Parameters
-    ----------
-    widget : ncvue.ncvMain
-        widget of ncvMain class.
-
-    Returns
-    -------
-    Another ncvue window will be created.
-
-    Examples
-    --------
-    >>> self.newwin = ttk.Button(
-    ...     self.rowwin, text="New Window",
-    ...     command=partial(clone_ncvmain, self.master))
-
-    """
-    # parent = widget.nametowidget(widget.winfo_parent())
-    if widget.name != 'ncvMain':
-        print('clone_ncvmain failed. Widget should be ncvMain.')
-        print('widget.name is: ', widget.name)
-        import sys
-        sys.exit()
-
-    root = Toplevel()
-    root.name = 'ncvClone'
-    root.title("Secondary ncvue window")
-    # root.geometry('1000x800+150+100')
-
-    root.top = widget.top
-    sc = ncvScreen(root.top)
-    sc.set_window_geometry(root, sc.secondary_window_size())
-
-    # https://stackoverflow.com/questions/46505982/is-there-a-way-to-clone-a-tkinter-widget
-    cls = widget.__class__
-    clone = cls(root)
-    try:
-        for key in widget.configure():
-            if key != 'class':
-                clone.configure({key: widget.cget(key)})
-    except TypeError:
-        # in case of CustomTkinter
-        from .ncvmain import ncvMain
-        cls = ncvMain
-        clone = cls(root)
-        clone.pack(fill=tk.BOTH, expand=1)
-
-    return clone
-
-
 def format_coord_contour(x, y, ax, xx, yy, zz):
     """
     Formatter function for contour plot including value of nearest array cell.
@@ -768,8 +702,8 @@ def get_slice(dimspins, y):
     """
     Get slice of variable `y` inquiring dimension selector widgets.
 
-    This compatibility wrapper accepts Tk spinboxes or any object exposing
-    ``get()``. New Qt code should pass plain values to ``get_slice_values``.
+    This compatibility wrapper accepts objects exposing ``get()``. New code
+    should pass plain values to ``get_slice_values``.
 
     """
     return get_slice_values([dimspins[i].get() for i in range(y.ndim)], y)
@@ -947,7 +881,7 @@ def selvar(self, var):
     Parameters
     ----------
     self : class
-        ncvue Tk class having fi and groups
+        ncv session or panel having fi and groups
     var : string
         Variable name including group or file identifier,
         such as 'Qle', 'group1/Qle', or 'file0001/Qle'

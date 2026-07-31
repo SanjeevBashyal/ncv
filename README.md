@@ -26,12 +26,14 @@ After saving a form, regenerate the Python forms from the repository root:
 ```
 
 `main_window.ui` controls the window and tab shell. The panel forms contain the
-visible controls for each tab. Matplotlib canvases, toolbars, NetCDF dimension
+visible plot controls. Matplotlib canvases, toolbars, NetCDF dimension
 selectors, and the Cartopy axes are inserted at runtime into the named host
 layouts in those forms.
 
-Widget object names are the interface between Designer and `ncv/app.py`. Keep
-an existing object name when moving or styling a widget. If you intentionally
+Widget object names are the interface between Designer and the panel modules:
+`ncvscatter.py`, `ncvcontour.py`, `ncvmap.py`, and `ncvmatrix.py`. Shared panel
+code lives in `ncvcommon.py`, while `app.py` assembles the main window. Keep an
+existing object name when moving or styling a widget. If you intentionally
 rename or remove one, update the corresponding Python reference and tests.
 
 Validate UI changes from the repository root with:

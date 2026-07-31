@@ -35,6 +35,5 @@ packages = ["ncv", "ncv.pyui"]
 ncv = [
   "images/*.png",
   "images/*.ico",
-  "ui/*.ui",
-  "themes/**/*"
+  "ui/*.ui"
 ]

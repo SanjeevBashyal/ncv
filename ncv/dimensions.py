@@ -77,7 +77,7 @@ def dimension_specs(owner, vardim: str, role: str) -> list[DimensionSpec]:
     Return dimension selector specs for a selected variable.
 
     ``role`` is one of ``x``, ``y``, ``y2``, ``z``, ``lat``, ``lon``, or
-    ``var`` and preserves the defaults from the original Tk implementation.
+    ``var`` and preserves the existing selector defaults.
     """
     specs = empty_dimension_specs(owner.maxdim)
     if not vardim:

@@ -1,9 +1,8 @@
 """
 Application session and NetCDF loading for ncv.
 
-This module is intentionally GUI-toolkit neutral.  The old Tk implementation
-stored all of this state on a hidden Tk root; the Qt implementation keeps it in
-an explicit object instead.
+This module is intentionally GUI-toolkit neutral and keeps application state
+in an explicit object.
 """
 from __future__ import annotations
 

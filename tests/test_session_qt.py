@@ -1,3 +1,4 @@
+import ast
 import os
 from pathlib import Path
 import subprocess
@@ -46,6 +47,49 @@ def test_import_is_cartopy_safe():
     assert not hasattr(ncv, "ncvue")
 
 
+def test_import_does_not_require_tk_or_cartopy():
+    code = """
+import sys
+for name in ('tkinter', 'customtkinter', 'cartopy'):
+    sys.modules[name] = None
+import ncv
+from ncv.app import HAVE_CARTOPY, NcvMainWindow
+from ncv.ncvmap import MapUnavailablePanel
+from ncv.qt_compat import QtWidgets
+from ncv.session import NcvSession
+assert callable(ncv.ncv)
+assert not HAVE_CARTOPY
+app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+window = NcvMainWindow(NcvSession())
+assert isinstance(window.map, MapUnavailablePanel)
+window.close()
+app.processEvents()
+"""
+    subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_package_has_no_tk_imports():
+    package_dir = Path(__file__).parents[1] / "ncv"
+    legacy_paths = {
+        "ncvmain.py",
+        "ncvscreen.py",
+        "ncvwidgets.py",
+        "tooltip.py",
+        "themes",
+    }
+    assert not any((package_dir / path).exists() for path in legacy_paths)
+
+    forbidden = {"tkinter", "customtkinter"}
+    for path in package_dir.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = {alias.name.split(".", 1)[0] for alias in node.names}
+                assert names.isdisjoint(forbidden), path
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                assert node.module.split(".", 1)[0] not in forbidden, path
+
+
 def test_session_open_and_analyse_netcdf(tmp_path):
     from ncv.session import NcvSession
 
@@ -90,7 +134,11 @@ def test_get_slice_values_reducers():
 
 
 def test_qt_window_smoke_with_generated_netcdf(tmp_path):
-    from ncv.app import HAVE_CARTOPY, MapPanel, MapUnavailablePanel, NcvMainWindow
+    from ncv.app import HAVE_CARTOPY, NcvMainWindow
+    from ncv.ncvcontour import ContourPanel
+    from ncv.ncvmap import MapPanel, MapUnavailablePanel
+    from ncv.ncvmatrix import MatrixPanel
+    from ncv.ncvscatter import ScatterPanel
     from ncv.qt_compat import QtWidgets
     from ncv.session import NcvSession
 
@@ -107,7 +155,10 @@ def test_qt_window_smoke_with_generated_netcdf(tmp_path):
     assert win.tabWidget_main.count() == 4
     assert win.tabWidget_main.widget(0) is win.scatter
     assert win.tabWidget_main.widget(1) is win.contour
-    assert win.tabWidget_main.widget(3) is win.tab_matrixDisplay
+    assert win.tabWidget_main.widget(3) is win.matrix
+    assert isinstance(win.scatter, ScatterPanel)
+    assert isinstance(win.contour, ContourPanel)
+    assert isinstance(win.matrix, MatrixPanel)
     assert win.scatter.comboBox_y.objectName() == "comboBox_y"
     assert win.contour.comboBox_z.objectName() == "comboBox_z"
 

@@ -94,6 +94,9 @@
       <string>Inputs</string>
      </property>
      <layout class="QVBoxLayout" name="verticalLayout">
+      <property name="spacing">
+       <number>3</number>
+      </property>
       <property name="topMargin">
        <number>3</number>
       </property>
@@ -422,6 +425,9 @@
       <string>Display Settings</string>
      </property>
      <layout class="QVBoxLayout" name="verticalLayout_2">
+      <property name="spacing">
+       <number>3</number>
+      </property>
       <property name="leftMargin">
        <number>9</number>
       </property>
@@ -933,12 +939,12 @@
     </widget>
    </item>
    <item>
-    <layout class="QHBoxLayout" name="horizontalLayout_Quit">
+    <layout class="QHBoxLayout" name="horizontalLayout_quit">
      <property name="topMargin">
-      <number>5</number>
+      <number>0</number>
      </property>
      <item>
-      <spacer name="horizontalSpacer_Quit">
+      <spacer name="horizontalSpacer_quit">
        <property name="orientation">
         <enum>Qt::Horizontal</enum>
        </property>
