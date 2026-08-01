@@ -9,7 +9,13 @@ import numpy as np
 
 from .dimensions import dimension_values
 from .ncvmethods import get_miss
-from .ncvutils import get_slice_values, parse_entry, set_miss
+from .ncvutils import (
+    get_slice_values,
+    parse_entry,
+    selvar,
+    set_miss,
+    vardim2var,
+)
 from .qt_compat import QtCore, QtGui, QtWidgets
 from .session import HAVE_XARRAY, NcvSession
 
@@ -17,6 +23,7 @@ from .session import HAVE_XARRAY, NcvSession
 __all__ = [
     "DimensionControlRow",
     "PlotPanel",
+    "TimeControlMixin",
     "float_or_none",
     "parse_limits",
     "resource_path",
@@ -113,6 +120,185 @@ class DimensionControlRow(QtWidgets.QWidget):
                 selector.setCurrentText(str(value))
             finally:
                 selector.blockSignals(blocked)
+
+
+class TimeControlMixin:
+    """Shared time navigation for panels using the standard time widgets."""
+
+    def init_time_controls(self, variable_combo, dimension_row):
+        self._time_variable_combo = variable_combo
+        self._time_dimension_row = dimension_row
+        self.iunlim = -1
+        self.nunlim = 0
+        self.anim_inc = 1
+        self.timer = QtCore.QTimer(self)
+        self.timer.setInterval(80)
+        self.timer.timeout.connect(lambda: self.update_frame(False))
+
+        self.horizontalSlider_timeStep.valueChanged.connect(self.tstep_t)
+        self.pushButton_firstTime.clicked.connect(self.first_t)
+        self.pushButton_prevTime.clicked.connect(self.prev_t)
+        self.pushButton_runBackward.clicked.connect(self.prun_t)
+        self.pushButton_runForward.clicked.connect(self.nrun_t)
+        self.pushButton_nextTime.clicked.connect(self.next_t)
+        self.pushButton_lastTime.clicked.connect(self.last_t)
+
+    def first_t(self):
+        self._show_frame(0)
+
+    def last_t(self):
+        self._show_frame(self.nunlim - 1)
+
+    def nrun_t(self):
+        self._toggle_animation(1)
+
+    def prun_t(self):
+        self._toggle_animation(-1)
+
+    def next_t(self):
+        self._show_frame(self._next_time_index(1)[0])
+
+    def prev_t(self):
+        self._show_frame(self._next_time_index(-1)[0])
+
+    def _show_frame(self, index):
+        if self.nunlim > 0:
+            self.set_tstep(index)
+            self.update_frame(True)
+
+    def _stop_animation(self):
+        self.timer.stop()
+        self.pushButton_runBackward.setText("<")
+        self.pushButton_runForward.setText(">")
+
+    def _set_animation_direction(self, direction):
+        self.anim_inc = direction
+        self.pushButton_runBackward.setText("||" if direction < 0 else "<")
+        self.pushButton_runForward.setText("||" if direction > 0 else ">")
+
+    def _toggle_animation(self, direction):
+        if self.nunlim <= 1:
+            self._stop_animation()
+        elif self.timer.isActive() and self.anim_inc == direction:
+            self._stop_animation()
+        else:
+            self._set_animation_direction(direction)
+            self.timer.start()
+
+    def _next_time_index(self, direction):
+        if self.nunlim <= 1:
+            return 0, direction, True
+        current = self._current_time_index()
+        target = current + direction
+        if 0 <= target < self.nunlim:
+            return target, direction, False
+        repeat = self.comboBox_repeat.currentText()
+        if repeat == "repeat":
+            return (0 if direction > 0 else self.nunlim - 1), direction, False
+        if repeat == "reflect":
+            direction *= -1
+            return current + direction, direction, False
+        return current, direction, True
+
+    def tstep_t(self, step):
+        if self._updating:
+            return
+        self.set_tstep(int(step))
+        self.update_frame(True)
+
+    def _current_time_index(self):
+        if self.iunlim < 0 or self.nunlim <= 0:
+            return 0
+        try:
+            value = int(self._time_dimension_row.values()[self.iunlim])
+        except (ValueError, IndexError):
+            return 0
+        return min(max(value, 0), self.nunlim - 1)
+
+    def set_tstep(self, it):
+        if self.iunlim < 0 or self.nunlim <= 0:
+            return
+        it = min(max(int(it), 0), self.nunlim - 1)
+        self._time_dimension_row.set_value(self.iunlim, it)
+        blocked = self.horizontalSlider_timeStep.blockSignals(True)
+        self.horizontalSlider_timeStep.setValue(it)
+        self.horizontalSlider_timeStep.blockSignals(blocked)
+        details = self._time_details(self._time_variable_combo.currentText())
+        if details is None:
+            return
+        _variable, time, _axis, _count = details
+        value = time.values[it] if self.usex else time[it]
+        if not self.usex:
+            try:
+                value = np.around(value, 4)
+            except TypeError:
+                pass
+        self.label_timeValue.setText(str(value))
+
+    def set_unlim(self, vardim):
+        details = self._time_details(vardim)
+        if details is None:
+            self.iunlim = -1
+            self.nunlim = 0
+        else:
+            _variable, _time, self.iunlim, self.nunlim = details
+        self._sync_time_controls()
+
+    def _time_details(self, vardim):
+        if not vardim:
+            return None
+        group, variable_name = vardim2var(vardim, self.groups)
+        if self.usex:
+            tname, tvar = self.tname, self.tvar
+            time, time_dim = self.time, self.dunlim
+        else:
+            tname, tvar = self.tname[group], self.tvar[group]
+            time, time_dim = self.time[group], self.dunlim[group]
+        if time is None or not tvar:
+            return None
+        if variable_name == tname:
+            variable_name = tvar
+        try:
+            variable = selvar(self, variable_name)
+            time_variable = selvar(self, tvar)
+            dims = variable.dims if self.usex else variable.dimensions
+            time_dims = (time_variable.dims if self.usex
+                         else time_variable.dimensions)
+        except Exception:
+            return None
+        if time_dim not in time_dims:
+            time_dim = time_dims[0] if time_dims else None
+        if time_dim not in dims:
+            return None
+        axis = dims.index(time_dim)
+        count = min(int(variable.shape[axis]), int(time.size))
+        if count <= 0:
+            return None
+        return variable, time, axis, count
+
+    def _sync_time_controls(self):
+        self._stop_animation()
+        enabled = self.iunlim >= 0 and self.nunlim > 0
+        for widget in (
+            self.label_step,
+            self.horizontalSlider_timeStep,
+            self.pushButton_firstTime,
+            self.pushButton_prevTime,
+            self.pushButton_nextTime,
+            self.pushButton_lastTime,
+            self.label_repeat,
+            self.comboBox_repeat,
+        ):
+            widget.setEnabled(enabled)
+        can_run = enabled and self.nunlim > 1
+        self.pushButton_runBackward.setEnabled(can_run)
+        self.pushButton_runForward.setEnabled(can_run)
+        blocked = self.horizontalSlider_timeStep.blockSignals(True)
+        self.horizontalSlider_timeStep.setRange(0, max(self.nunlim - 1, 0))
+        self.horizontalSlider_timeStep.setValue(0)
+        self.horizontalSlider_timeStep.blockSignals(blocked)
+        if not enabled:
+            self.label_timeValue.clear()
 
 
 class PlotPanel(QtWidgets.QWidget):
