@@ -116,7 +116,7 @@
          </widget>
         </item>
         <item>
-         <widget class="QComboBox" name="comboBox_variable">
+         <widget class="QComboBox" name="comboBox_z">
           <property name="sizePolicy">
            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
             <horstretch>1</horstretch>
@@ -145,7 +145,7 @@
          </spacer>
         </item>
         <item>
-         <widget class="QWidget" name="widget_vDimensionsHost" native="true">
+         <widget class="QWidget" name="widget_zDimensionsHost" native="true">
           <property name="minimumSize">
            <size>
             <width>300</width>
@@ -224,16 +224,16 @@
        </layout>
       </item>
       <item>
-       <layout class="QHBoxLayout" name="horizontalLayout_longitude">
+       <layout class="QHBoxLayout" name="horizontalLayout_x">
         <item>
-         <widget class="QLabel" name="label_longitude">
+         <widget class="QLabel" name="label_x">
           <property name="text">
            <string>X:</string>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QComboBox" name="comboBox_longitude">
+         <widget class="QComboBox" name="comboBox_x">
           <property name="sizePolicy">
            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
             <horstretch>1</horstretch>
@@ -246,7 +246,7 @@
          </widget>
         </item>
         <item>
-         <spacer name="horizontalSpacer_longitude">
+         <spacer name="horizontalSpacer_x">
           <property name="orientation">
            <enum>Qt::Horizontal</enum>
           </property>
@@ -262,7 +262,7 @@
          </spacer>
         </item>
         <item>
-         <widget class="QWidget" name="widget_lonDimensionsHost" native="true">
+         <widget class="QWidget" name="widget_xDimensionsHost" native="true">
           <property name="minimumSize">
            <size>
             <width>300</width>
@@ -288,19 +288,19 @@
        </layout>
       </item>
       <item>
-       <layout class="QHBoxLayout" name="horizontalLayout_latitude">
+       <layout class="QHBoxLayout" name="horizontalLayout_y">
         <property name="topMargin">
          <number>0</number>
         </property>
         <item>
-         <widget class="QLabel" name="label_latitude">
+         <widget class="QLabel" name="label_y">
           <property name="text">
            <string>Y:</string>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QComboBox" name="comboBox_latitude">
+         <widget class="QComboBox" name="comboBox_y">
           <property name="sizePolicy">
            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
             <horstretch>1</horstretch>
@@ -313,7 +313,7 @@
          </widget>
         </item>
         <item>
-         <spacer name="horizontalSpacer_latitude">
+         <spacer name="horizontalSpacer_y">
           <property name="orientation">
            <enum>Qt::Horizontal</enum>
           </property>
@@ -326,7 +326,7 @@
          </spacer>
         </item>
         <item>
-         <widget class="QWidget" name="widget_latDimensionsHost" native="true">
+         <widget class="QWidget" name="widget_yDimensionsHost" native="true">
           <property name="minimumSize">
            <size>
             <width>300</width>
@@ -541,7 +541,7 @@
         <item>
          <widget class="QLabel" name="label_dataFormat">
           <property name="toolTip">
-           <string>Colour map</string>
+           <string>Format the numeric data Z in the table view.</string>
           </property>
           <property name="text">
            <string>Data Format:</string>
@@ -664,7 +664,7 @@
         <item>
          <widget class="QCheckBox" name="checkBox_flipTableTopBottom">
           <property name="toolTip">
-           <string>Reverse colour map</string>
+           <string>Flip the table in the vertical direction.</string>
           </property>
           <property name="text">
            <string>Flip Table Top/Bottom</string>
@@ -674,7 +674,7 @@
         <item>
          <widget class="QCheckBox" name="checkBox_flipTableLeftRight">
           <property name="toolTip">
-           <string>Reverse colour map</string>
+           <string>Flip the table in horizontal direction.</string>
           </property>
           <property name="text">
            <string>Flip Table Left/Right</string>
@@ -700,6 +700,9 @@
        <layout class="QHBoxLayout" name="horizontalLayout_projection">
         <item>
          <widget class="QLabel" name="label_rowColHeaderFormat">
+          <property name="toolTip">
+           <string>Format the numeric data X and Y in the header columns and rows respectively.</string>
+          </property>
           <property name="text">
            <string>Row/Col Header Format:</string>
           </property>
@@ -821,7 +824,7 @@
         <item>
          <widget class="QCheckBox" name="checkBox_showCellIndices">
           <property name="toolTip">
-           <string>Reverse colour map</string>
+           <string>Show cell indices instead of X and Y in the row and column headers</string>
           </property>
           <property name="text">
            <string>Show cell indices</string>

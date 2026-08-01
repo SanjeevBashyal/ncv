@@ -13,6 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 def make_sample(path, *, fixed_time=False):
     ds = nc.Dataset(path, "w")
+    ds.title = "Matrix test dataset"
     ds.createDimension("time", 4 if fixed_time else None)
     ds.createDimension("lat", 3)
     ds.createDimension("lon", 4)
@@ -374,12 +375,187 @@ def test_map_fixed_time_and_static_variable_controls(tmp_path, qt_app):
         session.close()
 
 
+def make_matrix_panel(path, qt_app, *, fixed_time=False):
+    from ncv.ncvmatrix import MatrixPanel
+    from ncv.qt_compat import QtWidgets
+    from ncv.session import NcvSession
+
+    make_sample(path, fixed_time=fixed_time)
+    session = NcvSession()
+    session.open([str(path)])
+
+    class PanelWindow(QtWidgets.QWidget):
+        def open_file_dialog(self, _use_xarray):
+            pass
+
+        def create_secondary_window(self):
+            pass
+
+    window = PanelWindow()
+    panel = MatrixPanel(window, session)
+    return panel, window, session
+
+
+def select_matrix_variable(panel, session, name):
+    item = next(column for column in session.cols if column.startswith(f"{name} "))
+    panel.comboBox_z.setCurrentText(item)
+    assert panel.comboBox_z.currentText() == item
+
+
+def matrix_display(panel, row, column):
+    from ncv.qt_compat import QtCore
+
+    model = panel.tableView_showMatrix.model()
+    return model.data(model.index(row, column), QtCore.Qt.DisplayRole)
+
+
+def matrix_header(panel, section, orientation):
+    from ncv.qt_compat import QtCore
+
+    model = panel.tableView_showMatrix.model()
+    return model.headerData(section, orientation, QtCore.Qt.DisplayRole)
+
+
+def test_matrix_table_metadata_formats_and_flips(tmp_path, qt_app):
+    from ncv.qt_compat import QtCore
+
+    panel, window, session = make_matrix_panel(tmp_path / "matrix.nc", qt_app)
+    try:
+        dataset_header = panel.textBrowser_showHeader.toPlainText().lower()
+        assert "matrix test dataset" in dataset_header
+        assert "dimensions" in dataset_header
+        assert "temp" in dataset_header
+
+        select_matrix_variable(panel, session, "temp")
+        model = panel.tableView_showMatrix.model()
+        assert model.rowCount() == 3
+        assert model.columnCount() == 4
+        assert panel.comboBox_x.currentText().startswith("lon ")
+        assert panel.comboBox_y.currentText().startswith("lat ")
+        assert matrix_display(panel, 0, 0) == "0.0"
+        assert matrix_display(panel, 2, 3) == "11.0"
+        assert matrix_header(panel, 1, QtCore.Qt.Horizontal) == "90.0"
+        assert matrix_header(panel, 0, QtCore.Qt.Vertical) == "-45.0"
+        assert float(panel.lineEdit_min.text()) == 0
+        assert float(panel.lineEdit_max.text()) == 11
+
+        panel.checkBox_allValues.setChecked(True)
+        assert float(panel.lineEdit_min.text()) == 0
+        assert float(panel.lineEdit_max.text()) == 47
+        panel.checkBox_allValues.setChecked(False)
+        assert float(panel.lineEdit_max.text()) == 11
+
+        variable_header = panel.textBrowser_showHeader.toPlainText().lower()
+        assert "temp" in variable_header
+        assert "temperature" in variable_header
+        assert "units" in variable_header
+        assert "k" in variable_header
+
+        panel.comboBox_dataFormat.setCurrentText("%.2E")
+        panel.comboBox_rowColHeaderFormat.setCurrentText("%.0f")
+        assert matrix_display(panel, 1, 2) == "6.00E+00"
+        assert matrix_header(panel, 1, QtCore.Qt.Horizontal) == "90"
+        assert matrix_header(panel, 0, QtCore.Qt.Vertical) == "-45"
+
+        panel.checkBox_flipTableLeftRight.setChecked(True)
+        assert matrix_display(panel, 0, 0) == "3.00E+00"
+        assert matrix_header(panel, 0, QtCore.Qt.Horizontal) == "270"
+
+        panel.checkBox_flipTableTopBottom.setChecked(True)
+        assert matrix_display(panel, 0, 0) == "1.10E+01"
+        assert matrix_header(panel, 0, QtCore.Qt.Vertical) == "45"
+
+        panel.checkBox_showCellIndices.setChecked(True)
+        assert matrix_header(panel, 0, QtCore.Qt.Horizontal) == "3"
+        assert matrix_header(panel, 0, QtCore.Qt.Vertical) == "2"
+    finally:
+        panel.timer.stop()
+        panel.close()
+        window.close()
+        session.close()
+
+
+def assert_matrix_frame(panel, session, index, first_value):
+    assert panel.horizontalSlider_timeStep.value() == index
+    assert panel.label_timeValue.text() == str(session.time[0][index])
+    assert matrix_display(panel, 0, 0) == first_value
+
+
+def test_matrix_time_navigation_animation_and_static_variable(
+        tmp_path, qt_app):
+    panel, window, session = make_matrix_panel(
+        tmp_path / "matrix-time.nc", qt_app)
+    try:
+        select_matrix_variable(panel, session, "temp")
+        assert panel.iunlim == 0
+        assert panel.nunlim == 4
+        assert_matrix_frame(panel, session, 0, "0.0")
+
+        panel.pushButton_nextTime.click()
+        assert_matrix_frame(panel, session, 1, "12.0")
+        panel.horizontalSlider_timeStep.setValue(2)
+        assert_matrix_frame(panel, session, 2, "24.0")
+        panel.pushButton_lastTime.click()
+        assert_matrix_frame(panel, session, 3, "36.0")
+        panel.pushButton_firstTime.click()
+        assert_matrix_frame(panel, session, 0, "0.0")
+
+        panel.pushButton_runForward.click()
+        assert panel.timer.isActive()
+        panel.update_frame()
+        assert panel.timer.isActive()
+        assert_matrix_frame(panel, session, 1, "12.0")
+        panel.pushButton_runForward.click()
+        assert not panel.timer.isActive()
+
+        select_matrix_variable(panel, session, "surface")
+        assert panel.iunlim == -1
+        assert panel.nunlim == 0
+        assert panel.label_timeValue.text() == ""
+        assert panel.horizontalSlider_timeStep.maximum() == 0
+        assert not any(widget.isEnabled() for widget in (
+            panel.horizontalSlider_timeStep,
+            panel.pushButton_firstTime,
+            panel.pushButton_prevTime,
+            panel.pushButton_runBackward,
+            panel.pushButton_runForward,
+            panel.pushButton_nextTime,
+            panel.pushButton_lastTime,
+            panel.comboBox_repeat,
+        ))
+    finally:
+        panel.timer.stop()
+        panel.close()
+        window.close()
+        session.close()
+
+
+def test_matrix_fixed_time_dimension_remains_active(tmp_path, qt_app):
+    panel, window, session = make_matrix_panel(
+        tmp_path / "matrix-fixed-time.nc", qt_app, fixed_time=True)
+    try:
+        assert session.dunlim[0] == ""
+        select_matrix_variable(panel, session, "temp")
+        assert panel.iunlim == 0
+        assert panel.nunlim == 4
+        assert panel.horizontalSlider_timeStep.isEnabled()
+        assert panel.pushButton_runForward.isEnabled()
+        panel.pushButton_nextTime.click()
+        assert_matrix_frame(panel, session, 1, "12.0")
+    finally:
+        panel.timer.stop()
+        panel.close()
+        window.close()
+        session.close()
+
+
 def test_qt_designer_forms_compile():
     from PyQt5 import uic
     from ncv.pyui.ui_contour_panel import Ui_widget_ContourPanel
     from ncv.pyui.ui_main_window import Ui_NcvMainWindow
     from ncv.pyui.ui_map_panel import Ui_MapPanel
     from ncv.pyui.ui_map_unavailable import Ui_MapUnavailablePanel
+    from ncv.pyui.ui_matrix_panel import Ui_widget_matrixPanel
     from ncv.pyui.ui_scatter_panel import Ui_ScatterPanel
 
     ui_dir = Path(__file__).parents[1] / "ncv" / "ui"
@@ -389,6 +565,7 @@ def test_qt_designer_forms_compile():
         "contour_panel.ui",
         "map_panel.ui",
         "map_unavailable.ui",
+        "matrix_panel.ui",
     }
 
     assert {path.name for path in ui_dir.glob("*.ui")} == forms
@@ -403,6 +580,7 @@ def test_qt_designer_forms_compile():
         Ui_widget_ContourPanel,
         Ui_MapPanel,
         Ui_MapUnavailablePanel,
+        Ui_widget_matrixPanel,
     ))
 
 
