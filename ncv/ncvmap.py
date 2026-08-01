@@ -168,8 +168,7 @@ class MapPanel(TimeControlMixin, PlotPanel, Ui_MapPanel):
             set_combo_items(combo, columns, "")
         for dims in (self.vd, self.lond, self.latd):
             dims.set_specs(empty_dimension_specs(self.maxdim))
-        self.lineEdit_min.setText("None")
-        self.lineEdit_max.setText("None")
+        self._set_limits(None, None)
         self.horizontalSlider_timeStep.setRange(0, 0)
         self.horizontalSlider_timeStep.setValue(0)
         self.comboBox_repeat.setCurrentText("repeat")
@@ -196,6 +195,14 @@ class MapPanel(TimeControlMixin, PlotPanel, Ui_MapPanel):
         self._sync_time_controls()
         self._updating = False
 
+    def _set_limits(self, vmin, vmax):
+        for line_edit, value in (
+            (self.lineEdit_min, vmin),
+            (self.lineEdit_max, vmax),
+        ):
+            line_edit.setText(str(value))
+            line_edit.setCursorPosition(0)
+
     def checked(self):
         if not self._updating:
             self.redraw()
@@ -204,14 +211,15 @@ class MapPanel(TimeControlMixin, PlotPanel, Ui_MapPanel):
         if self._updating:
             return
         vmin, vmax = self.get_vminmax()
-        self.lineEdit_min.setText(str(vmin))
-        self.lineEdit_max.setText(str(vmax))
+        self._set_limits(vmin, vmax)
         self.redraw()
 
     def entered_clon(self):
         self.checked()
 
     def entered_v(self):
+        for line_edit in (self.lineEdit_min, self.lineEdit_max):
+            line_edit.setCursorPosition(0)
         self.checked()
 
     def selected_cmap(self):
@@ -254,8 +262,7 @@ class MapPanel(TimeControlMixin, PlotPanel, Ui_MapPanel):
         self.set_unlim(v)
         self.set_tstep(0)
         vmin, vmax = self.get_vminmax()
-        self.lineEdit_min.setText(str(vmin))
-        self.lineEdit_max.setText(str(vmax))
+        self._set_limits(vmin, vmax)
         self.redraw()
 
     def spinned_lon(self):
