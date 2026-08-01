@@ -4,14 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ncv"
-version = "0.0.2"
+version = "0.1.0"
 description = "A quick PyQt5 viewer for NetCDF files"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-authors = [
-  { name = "Matthias Cuntz" }
-]
+
 dependencies = [
   "matplotlib",
   "netCDF4",
@@ -19,11 +17,25 @@ dependencies = [
   "PyQt5"
 ]
 
+[[project.authors]]
+name = "Sanjeev Bashyal"
+email = "sanjeev.bashyal01@gmail.com"
+
+[[project.authors]]
+name = "Matthias Cuntz"
+
 [project.optional-dependencies]
 xarray = ["xarray"]
 map = ["cartopy"]
 test = ["pytest"]
 full = ["xarray", "cartopy"]
+
+
+
+[project.urls]
+Homepage = "https://github.com/SanjeevBashyal/ncv"
+Repository = "https://github.com/SanjeevBashyal/ncv"
+"Bug Tracker" = "https://github.com/SanjeevBashyal/ncv/issues"
 
 [project.scripts]
 ncv = "ncv.__main__:main"
