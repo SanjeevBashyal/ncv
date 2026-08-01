@@ -263,6 +263,12 @@ def test_map_time_navigation_and_animation(tmp_path, qt_app):
         assert panel.nunlim == 4
         assert panel.horizontalSlider_timeStep.maximum() == 3
         assert_map_frame(panel, session, 0)
+        assert panel.lineEdit_min.cursorPosition() == 0
+        assert panel.lineEdit_max.cursorPosition() == 0
+
+        panel.lineEdit_min.setText("0.1234567890123456789")
+        panel.lineEdit_min.editingFinished.emit()
+        assert panel.lineEdit_min.cursorPosition() == 0
 
         panel.pushButton_lastTime.click()
         assert_map_frame(panel, session, 3)
@@ -436,8 +442,8 @@ def test_matrix_table_metadata_formats_and_flips(tmp_path, qt_app):
         assert matrix_display(panel, 2, 3) == "11.0"
         assert matrix_header(panel, 1, QtCore.Qt.Horizontal) == "90.0"
         assert matrix_header(panel, 0, QtCore.Qt.Vertical) == "-45.0"
-        assert float(panel.lineEdit_min.text()) == 0
-        assert float(panel.lineEdit_max.text()) == 11
+        assert panel.lineEdit_min.text() == "0.0"
+        assert panel.lineEdit_max.text() == "11.0"
 
         panel.checkBox_allValues.setChecked(True)
         assert float(panel.lineEdit_min.text()) == 0
@@ -454,6 +460,8 @@ def test_matrix_table_metadata_formats_and_flips(tmp_path, qt_app):
         panel.comboBox_dataFormat.setCurrentText("%.2E")
         panel.comboBox_rowColHeaderFormat.setCurrentText("%.0f")
         assert matrix_display(panel, 1, 2) == "6.00E+00"
+        assert panel.lineEdit_min.text() == "0.00E+00"
+        assert panel.lineEdit_max.text() == "1.10E+01"
         assert matrix_header(panel, 1, QtCore.Qt.Horizontal) == "90"
         assert matrix_header(panel, 0, QtCore.Qt.Vertical) == "-45"
 

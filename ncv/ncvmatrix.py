@@ -142,6 +142,8 @@ class MatrixPanel(TimeControlMixin, PlotPanel, Ui_widget_matrixPanel):
         self.checkBox_allValues.stateChanged.connect(self._update_statistics)
         self.comboBox_dataFormat.currentIndexChanged.connect(
             self._update_model_options)
+        self.comboBox_dataFormat.currentIndexChanged.connect(
+            self._update_statistics)
         self.comboBox_rowColHeaderFormat.currentIndexChanged.connect(
             self._update_model_options)
         self.checkBox_flipTableTopBottom.stateChanged.connect(
@@ -424,8 +426,13 @@ class MatrixPanel(TimeControlMixin, PlotPanel, Ui_widget_matrixPanel):
                     minimum, maximum = np.min(array), np.max(array)
             except (TypeError, ValueError):
                 pass
-        self.lineEdit_min.setText("None" if minimum is None else str(minimum))
-        self.lineEdit_max.setText("None" if maximum is None else str(maximum))
+        number_format = self.comboBox_dataFormat.currentText()
+        self.lineEdit_min.setText(
+            "None" if minimum is None
+            else _format_value(minimum, number_format))
+        self.lineEdit_max.setText(
+            "None" if maximum is None
+            else _format_value(maximum, number_format))
 
     def _show_dataset_metadata(self):
         if not self.session.has_data:
