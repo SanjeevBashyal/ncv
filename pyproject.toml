@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ncv"
-version = "0.1.0"
+version = "0.1.1"
 description = "A quick PyQt5 viewer for NetCDF files"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -17,12 +17,9 @@ dependencies = [
   "PyQt5"
 ]
 
-[[project.authors]]
-name = "Sanjeev Bashyal"
-email = "sanjeev.bashyal01@gmail.com"
-
-[[project.authors]]
-name = "Matthias Cuntz"
+authors = [
+  { name = "Sanjeev Bashyal", email = "sanjeev.bashyal@ufz.de" }
+]
 
 [project.optional-dependencies]
 xarray = ["xarray"]
