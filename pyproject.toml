@@ -4,17 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ncv"
-version = "0.1.1"
-description = "A quick PyQt5 viewer for NetCDF files"
+version = "0.2.0"
+description = "A quick PyQt6 viewer for NetCDF files"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 
 dependencies = [
-  "matplotlib",
   "netCDF4",
   "numpy",
-  "PyQt5"
+  "PyQt6",
+  "pyqtgraph"
 ]
 
 authors = [
@@ -38,7 +38,7 @@ Repository = "https://github.com/SanjeevBashyal/ncv"
 ncv = "ncv.__main__:main"
 
 [tool.setuptools]
-packages = ["ncv", "ncv.pyui"]
+packages = ["ncv"]
 
 [tool.setuptools.package-data]
 ncv = [

@@ -1,8 +1,9 @@
 # ncv
 
-`ncv` is a PyQt5 desktop application for quickly inspecting NetCDF files.
-It combines interactive dimension selection, Matplotlib plots, an optional
-Cartopy map view, and a formatted array/metadata viewer in one application.
+`ncv` is a PyQt6 desktop application for quickly inspecting NetCDF files.
+It combines interactive dimension selection, pyqtgraph plots, an optional
+Cartopy-projected map view, and a formatted array/metadata viewer in one
+application.
 
 The viewer can be started with one or more files from the command line, or
 without arguments so that files can be opened from the interface.
@@ -33,10 +34,10 @@ without arguments so that files can be opened from the interface.
 
 The core installation includes:
 
-- Matplotlib
 - netCDF4
 - NumPy
-- PyQt5
+- PyQt6
+- pyqtgraph
 
 The following components are optional:
 
@@ -203,7 +204,7 @@ The Scatter/Line tab displays one or two series against a shared X axis.
 - Line style, width, color, marker, marker size, marker fill, marker edge, and
   marker edge width can be set independently for Y and Y2.
 - Datetime coordinates are supported on plot axes.
-- The embedded Matplotlib toolbar provides pan, zoom, navigation, and image
+- pyqtgraph provides pan, zoom, and a right-click export menu for image
   saving.
 
 The `xlim`, `ylim`, and `y2lim` fields accept either `min, max` or
@@ -226,10 +227,10 @@ The Contour tab displays a two-dimensional Z slice.
 - X and Y coordinates are optional; indices are used when they are empty.
 - Z can be transposed.
 - X and Y axes can be inverted.
-- Filled-contour and gridded mesh modes are available.
-- Matplotlib colormaps can be selected and reversed.
+- The field is drawn as a heat map, one image cell per grid cell.
+- pyqtgraph colormaps can be selected and reversed.
 - Grid lines can be enabled.
-- The Matplotlib navigation toolbar is included.
+- Drag to pan, scroll to zoom; right-click for the export menu.
 
 The `zlim` field uses the same `min, max` syntax as the Scatter limits. The
 bounds control the displayed color range and clip values outside that range.
@@ -250,7 +251,8 @@ The Map tab displays a two-dimensional variable with Cartopy. Install the
 - The **all** option forces the range calculation to inspect the complete
   variable; large variables may otherwise be sampled when calculating their
   initial range.
-- Smooth contour and gridded mesh modes are available.
+- Large grids are downsampled to stay responsive; `full res` draws every
+  cell.
 - Colormaps can be selected and reversed.
 - Global/cyclic display, coastlines, borders, rivers, lakes, and grid lines
   can be enabled independently.
@@ -258,7 +260,7 @@ The Map tab displays a two-dimensional variable with Cartopy. Install the
 - Projection choices include Plate Carrée, Mercator, Robinson, Mollweide,
   Lambert projections, polar stereographic projections, Eckert I–VI, and
   several other Cartopy projections.
-- The Matplotlib navigation toolbar is included.
+- Drag to pan, scroll to zoom; right-click for the export menu.
 
 Cartopy may retrieve Natural Earth feature data the first time coastlines or
 other geographic features are requested.
@@ -359,7 +361,7 @@ ncv(["run_01.nc", "run_02.nc"], miss=-9999, usex=False)
 ## Limitations
 
 - `ncv` is a viewer; the Matrix table does not edit NetCDF values.
-- Plot images can be saved through the Matplotlib toolbar, but there is no
+- Plot images can be saved through the pyqtgraph export menu, but there is no
   general data-export command.
 - High-dimensional variables must be sliced or reduced to the dimensionality
   required by the selected view.
@@ -379,8 +381,8 @@ are stored in [`ncv/ui`](ncv/ui):
 - `map_unavailable.ui`
 - `matrix_panel.ui`
 
-Generated PyQt5 modules are stored in [`ncv/pyui`](ncv/pyui). Do not edit a
-generated `ui_*.py` file manually.
+The forms are loaded at runtime with `PyQt6.uic.loadUi`, so there is no
+generation step: save the form and restart the application.
 
 Open a form with Qt Designer, for example:
 
@@ -388,19 +390,11 @@ Open a form with Qt Designer, for example:
 designer ncv/ui/matrix_panel.ui
 ```
 
-The executable may be named `designer` or `qt5-designer`, depending on the
+The executable may be named `designer` or `qt6-designer`, depending on the
 platform installation.
 
-After saving any form, regenerate all Python UI modules from the repository
-root:
-
-```bash
-./convert-ui-to-py.sh
-```
-
-The conversion script requires `pyuic5`. Matplotlib canvases, toolbars,
-dimension selectors, Cartopy axes, and the Matrix model are attached to the
-generated forms at runtime.
+pyqtgraph plot widgets, dimension selectors, and the Matrix model are attached
+to the loaded forms at runtime.
 
 Widget object names are the contract between the Designer files and the
 controllers. If an object is intentionally renamed or removed, update its
@@ -416,7 +410,7 @@ The main implementation modules are:
 | `ncv/ncvcommon.py` | Shared Qt panel and time-control behavior |
 | `ncv/ncvscatter.py` | Scatter/Line tab |
 | `ncv/ncvcontour.py` | Contour tab |
-| `ncv/ncvmap.py` | Map tab and optional-Cartopy fallback |
+| `ncv/ncvmap.py` | Map tab (pyqtgraph rendering, Cartopy projections) and optional-Cartopy fallback |
 | `ncv/ncvmatrix.py` | Matrix table and metadata tab |
 
 ## Development and validation
@@ -430,7 +424,7 @@ python3 -m pip install -e ".[full,test]"
 Compile the Python modules and run the offscreen Qt test suite:
 
 ```bash
-python3 -m py_compile ncv/*.py ncv/pyui/*.py
+python3 -m py_compile ncv/*.py
 QT_QPA_PLATFORM=offscreen python3 -m pytest
 ```
 

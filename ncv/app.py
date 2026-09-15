@@ -1,4 +1,4 @@
-"""PyQt5 application and main-window orchestration for ncv."""
+"""PyQt6 application and main-window orchestration for ncv."""
 from __future__ import annotations
 
 import sys
@@ -6,13 +6,12 @@ import sys
 import numpy as np
 
 from . import ncvmap as _ncvmap
-from .ncvcommon import resource_path
+from .ncvcommon import load_ui, resource_path
 from .ncvcontour import ContourPanel
 from .ncvmap import MapPanel, MapUnavailablePanel
 from .ncvmatrix import MatrixPanel
 from .ncvscatter import ScatterPanel
 from .ncvutils import selvar, vardim2var
-from .pyui.ui_main_window import Ui_NcvMainWindow
 from .qt_compat import QtGui, QtWidgets, require_qt
 from .session import NcvSession, normalize_files
 
@@ -43,14 +42,14 @@ def _window_geometry() -> tuple[int, int, int, int]:
     return w, h, x, geom.y()
 
 
-class NcvMainWindow(QtWidgets.QMainWindow, Ui_NcvMainWindow):
+class NcvMainWindow(QtWidgets.QMainWindow):
     """Top-level window that owns the four independent Qt panels."""
 
     instances = []
 
     def __init__(self, session: NcvSession, parent=None):
         super().__init__(parent)
-        self.setupUi(self)
+        load_ui("main_window", self)
         self.session = session
         self._children = []
 
@@ -191,7 +190,7 @@ def ncv(ncfile=None, miss=None, usex=False):
     window.show()
     if owns_app:
         app.aboutToQuit.connect(session.close)
-        return app.exec_()
+        return app.exec()
     return window
 
 

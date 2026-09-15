@@ -1,10 +1,11 @@
-"""ncv: a quick PyQt5 NetCDF viewer."""
+"""ncv: a quick PyQt6 NetCDF viewer."""
 from __future__ import annotations
 
 from .ncvutils import DIMMETHODS
 from .ncvutils import add_cyclic, has_cyclic
+from .ncvutils import cell_edges
 from .ncvutils import format_coord_contour, format_coord_map
-from .ncvutils import format_coord_scatter, get_slice, get_slice_values
+from .ncvutils import get_slice, get_slice_values
 from .ncvutils import get_standard_name, get_units
 from .ncvutils import list_intersection, parse_entry, selvar, set_axis_label
 from .ncvutils import set_miss, spinbox_values, vardim2var
@@ -31,9 +32,9 @@ __all__ = [
     "HAVE_XARRAY",
     "NcvSession",
     "add_cyclic",
+    "cell_edges",
     "format_coord_contour",
     "format_coord_map",
-    "format_coord_scatter",
     "get_slice",
     "get_slice_values",
     "get_standard_name",

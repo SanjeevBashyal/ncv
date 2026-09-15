@@ -82,7 +82,7 @@ def test_package_has_no_tk_imports():
     }
     assert not any((package_dir / path).exists() for path in legacy_paths)
 
-    forbidden = {"tkinter", "customtkinter"}
+    forbidden = {"tkinter", "customtkinter", "matplotlib"}
     for path in package_dir.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
@@ -174,11 +174,17 @@ def test_qt_window_smoke_with_generated_netcdf(tmp_path):
     win.scatter.comboBox_y.setCurrentText(temp)
     win.scatter.selected_y()
     win.scatter.redraw()
-    assert len(win.scatter.line_y) == 1
+    assert len(win.scatter.curves_y) == 1
+    # _restyle must not blank the curve (setData(**style) used to wipe it)
+    xdata = win.scatter.curves_y[0].getData()[0]
+    assert xdata is not None and len(xdata) > 1
+    # ...and the x-axis must actually rescale onto that data
+    xlo, xhi = win.scatter.item.vb.viewRange()[0]
+    assert xlo <= xdata.min() and xhi >= xdata.max()
 
     win.contour.comboBox_z.setCurrentText(temp)
     win.contour.selected_z()
-    assert len(win.contour.figure.axes) >= 1
+    assert win.contour._zz is not None
 
     if not HAVE_CARTOPY:
         assert isinstance(win.map, MapUnavailablePanel)
@@ -412,14 +418,14 @@ def matrix_display(panel, row, column):
     from ncv.qt_compat import QtCore
 
     model = panel.tableView_showMatrix.model()
-    return model.data(model.index(row, column), QtCore.Qt.DisplayRole)
+    return model.data(model.index(row, column), QtCore.Qt.ItemDataRole.DisplayRole)
 
 
 def matrix_header(panel, section, orientation):
     from ncv.qt_compat import QtCore
 
     model = panel.tableView_showMatrix.model()
-    return model.headerData(section, orientation, QtCore.Qt.DisplayRole)
+    return model.headerData(section, orientation, QtCore.Qt.ItemDataRole.DisplayRole)
 
 
 def test_matrix_table_metadata_formats_and_flips(tmp_path, qt_app):
@@ -440,8 +446,8 @@ def test_matrix_table_metadata_formats_and_flips(tmp_path, qt_app):
         assert panel.comboBox_y.currentText().startswith("lat ")
         assert matrix_display(panel, 0, 0) == "0.0"
         assert matrix_display(panel, 2, 3) == "11.0"
-        assert matrix_header(panel, 1, QtCore.Qt.Horizontal) == "90.0"
-        assert matrix_header(panel, 0, QtCore.Qt.Vertical) == "-45.0"
+        assert matrix_header(panel, 1, QtCore.Qt.Orientation.Horizontal) == "90.0"
+        assert matrix_header(panel, 0, QtCore.Qt.Orientation.Vertical) == "-45.0"
         assert panel.lineEdit_min.text() == "0.0"
         assert panel.lineEdit_max.text() == "11.0"
 
@@ -462,20 +468,20 @@ def test_matrix_table_metadata_formats_and_flips(tmp_path, qt_app):
         assert matrix_display(panel, 1, 2) == "6.00E+00"
         assert panel.lineEdit_min.text() == "0.00E+00"
         assert panel.lineEdit_max.text() == "1.10E+01"
-        assert matrix_header(panel, 1, QtCore.Qt.Horizontal) == "90"
-        assert matrix_header(panel, 0, QtCore.Qt.Vertical) == "-45"
+        assert matrix_header(panel, 1, QtCore.Qt.Orientation.Horizontal) == "90"
+        assert matrix_header(panel, 0, QtCore.Qt.Orientation.Vertical) == "-45"
 
         panel.checkBox_flipTableLeftRight.setChecked(True)
         assert matrix_display(panel, 0, 0) == "3.00E+00"
-        assert matrix_header(panel, 0, QtCore.Qt.Horizontal) == "270"
+        assert matrix_header(panel, 0, QtCore.Qt.Orientation.Horizontal) == "270"
 
         panel.checkBox_flipTableTopBottom.setChecked(True)
         assert matrix_display(panel, 0, 0) == "1.10E+01"
-        assert matrix_header(panel, 0, QtCore.Qt.Vertical) == "45"
+        assert matrix_header(panel, 0, QtCore.Qt.Orientation.Vertical) == "45"
 
         panel.checkBox_showCellIndices.setChecked(True)
-        assert matrix_header(panel, 0, QtCore.Qt.Horizontal) == "3"
-        assert matrix_header(panel, 0, QtCore.Qt.Vertical) == "2"
+        assert matrix_header(panel, 0, QtCore.Qt.Orientation.Horizontal) == "3"
+        assert matrix_header(panel, 0, QtCore.Qt.Orientation.Vertical) == "2"
     finally:
         panel.timer.stop()
         panel.close()
@@ -557,14 +563,8 @@ def test_matrix_fixed_time_dimension_remains_active(tmp_path, qt_app):
         session.close()
 
 
-def test_qt_designer_forms_compile():
-    from PyQt5 import uic
-    from ncv.pyui.ui_contour_panel import Ui_widget_ContourPanel
-    from ncv.pyui.ui_main_window import Ui_NcvMainWindow
-    from ncv.pyui.ui_map_panel import Ui_MapPanel
-    from ncv.pyui.ui_map_unavailable import Ui_MapUnavailablePanel
-    from ncv.pyui.ui_matrix_panel import Ui_widget_matrixPanel
-    from ncv.pyui.ui_scatter_panel import Ui_ScatterPanel
+def test_qt_designer_forms_load(qt_app):
+    from PyQt6 import QtWidgets, uic
 
     ui_dir = Path(__file__).parents[1] / "ncv" / "ui"
     forms = {
@@ -578,18 +578,65 @@ def test_qt_designer_forms_compile():
 
     assert {path.name for path in ui_dir.glob("*.ui")} == forms
     for form in forms:
-        form_class, base_class = uic.loadUiType(str(ui_dir / form))
-        assert form_class is not None
-        assert base_class is not None
+        base = (QtWidgets.QMainWindow if form == "main_window.ui"
+                else QtWidgets.QWidget)
+        widget = base()
+        uic.loadUi(str(ui_dir / form), widget)
+        assert widget.children()
 
-    assert all(ui_class is not None for ui_class in (
-        Ui_NcvMainWindow,
-        Ui_ScatterPanel,
-        Ui_widget_ContourPanel,
-        Ui_MapPanel,
-        Ui_MapUnavailablePanel,
-        Ui_widget_matrixPanel,
-    ))
+
+def test_to_plot_values_and_cell_edges():
+    from ncv.ncvcommon import to_plot_values
+    from ncv.ncvutils import cell_edges
+
+    times = np.array(["2020-01-01", "2020-01-02"], dtype="datetime64[ms]")
+    values, is_date = to_plot_values(times)
+    assert is_date
+    # POSIX seconds, one day apart
+    assert values[1] - values[0] == 86400.0
+    assert to_plot_values(np.arange(3)) [1] is False
+
+    assert np.allclose(cell_edges([1.0, 2.0, 3.0]), [0.5, 1.5, 2.5, 3.5])
+    assert np.allclose(cell_edges([5.0]), [4.5, 5.5])
+    assert len(cell_edges(np.arange(7.0))) == 8
+
+
+def test_scatter_style_tables_cover_the_form_defaults():
+    from ncv.ncvscatter import PEN_STYLES, SYMBOLS
+
+    # every style string the .ui ships must map onto Qt/pyqtgraph
+    assert set("- -- -. :".split()) <= set(PEN_STYLES)
+    assert set("o s ^ v d + x *".split()) <= set(SYMBOLS)
+    # "None" deliberately maps to nothing, which disables the line/marker
+    assert "None" not in PEN_STYLES and "None" not in SYMBOLS
+
+
+def test_metadata_html_formatting():
+    from ncv.ncvmatrix import _metadata_html
+
+    out = _metadata_html("<class 'netCDF4.Variable'>\n    units: Pa\nfilling on")
+    assert "<b>units:</b> Pa" in out
+    assert "<class" not in out          # netCDF4 repr noise dropped
+    assert "filling on" in out          # non-attribute lines survive
+    assert "&lt;" not in out.replace("&lt;/pre&gt;", "")
+
+
+def test_map_spans_globe():
+    from ncv.ncvmap import spans_globe
+
+    # a global grid wraps; a regional one must not (else add_cyclic smears it)
+    assert spans_globe(np.linspace(-180.0, 177.5, 144))
+    assert not spans_globe(np.linspace(11.0, 11.5, 6))
+    assert not spans_globe(np.array([11.0]))
+
+
+def test_map_decimation_stride():
+    from ncv.ncvmap import MAX_CELLS, decimation_stride
+
+    assert decimation_stride((100, 100)) == 1
+    stride = decimation_stride((1440, 720))
+    assert (1440 // stride) * (720 // stride) <= MAX_CELLS
+    assert decimation_stride((1440, 720), full_resolution=True) == 1
 
 
 def test_cli_help_uses_ncv_entrypoint():
