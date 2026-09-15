@@ -1,21 +1,17 @@
 """Qt contour plotting panel."""
 from __future__ import annotations
 
-from matplotlib.figure import Figure
 import numpy as np
 
 from .dimensions import dimension_specs, empty_dimension_specs
-from .ncvcommon import DimensionControlRow, PlotPanel, parse_limits
-from .ncvcommon import set_combo_items
-from .ncvutils import format_coord_contour, selvar
-from .ncvutils import set_axis_label, vardim2var
-from .pyui.ui_contour_panel import Ui_widget_ContourPanel as Ui_ContourPanel
-from .qt_compat import FigureCanvasQTAgg, NavigationToolbar2QT
-from .qt_compat import QtWidgets
+from .ncvcommon import DimensionControlRow, PlotPanel, cursor_label, load_ui
+from .ncvcommon import parse_limits, set_combo_items
+from .ncvutils import cell_edges, format_coord_contour
+from .qt_compat import QtCore, QtWidgets, pg
 
 
-class ContourPanel(PlotPanel, Ui_ContourPanel):
-    """Contour plot tab."""
+class ContourPanel(PlotPanel):
+    """Contour plot tab, drawn as a heat map."""
 
     def __init__(self, window, session):
         super().__init__(window, session, "Contour")
@@ -23,14 +19,19 @@ class ContourPanel(PlotPanel, Ui_ContourPanel):
         self.reinit()
 
     def _build_ui(self):
-        self.setupUi(self)
+        load_ui("contour_panel", self)
         self.connect_file_controls()
-        self.figure = Figure(facecolor="white", figsize=(1, 1))
-        self.axes = self.figure.add_subplot(111)
-        self.canvas = FigureCanvasQTAgg(self.figure)
-        self.toolbar = NavigationToolbar2QT(self.canvas, self)
-        self.plotLayout.addWidget(self.canvas, 1)
-        self.plotLayout.addWidget(self.toolbar)
+
+        self.plot = pg.PlotWidget()
+        self.item = self.plot.plotItem
+        self.image = pg.ImageItem()
+        self.item.addItem(self.image)
+        self.colorbar = pg.ColorBarItem(interactive=False)
+        self.colorbar.setImageItem(self.image, insert_in=self.item)
+        self.plotLayout.addWidget(self.plot, 1)
+        cursor_label(self.plot, self.plotLayout, self._format_cursor)
+        self._xx = self._yy = self._zz = None
+        self._xdate = self._ydate = False
 
         self.zd = DimensionControlRow(self.maxdim)
         self.xd = DimensionControlRow(self.maxdim)
@@ -51,11 +52,7 @@ class ContourPanel(PlotPanel, Ui_ContourPanel):
         self.xd.changed.connect(self.spinned_x)
         self.yd.changed.connect(self.spinned_y)
         self.comboBox_cmap.currentIndexChanged.connect(self.selected_cmap)
-        for check in (
-            self.checkBox_revCmap,
-            self.checkBox_mesh,
-            self.checkBox_grid,
-        ):
+        for check in (self.checkBox_revCmap, self.checkBox_grid):
             check.stateChanged.connect(self.checked)
         self.pushButton_quit.clicked.connect(QtWidgets.QApplication.quit)
 
@@ -128,109 +125,79 @@ class ContourPanel(PlotPanel, Ui_ContourPanel):
 
     def redraw(self):
         z = self.comboBox_z.currentText()
-        trans_z = self.checkBox_transposeZ.isChecked()
-        zmin, zmax = self._z_limits()
         x = self.comboBox_x.currentText()
         y = self.comboBox_y.currentText()
-        inv_x = self.checkBox_invX.isChecked()
-        inv_y = self.checkBox_invY.isChecked()
-        cmap = self.comboBox_cmap.currentText()
-        if self.checkBox_revCmap.isChecked():
-            cmap += "_r"
-        mesh = self.checkBox_mesh.isChecked()
-        grid = self.checkBox_grid.isChecked()
-        self.figure.clear()
-        self.axes = self.figure.add_subplot(111)
-        vx = vy = vz = "None"
-        if z:
-            group_z, vz = vardim2var(z, self.groups)
-            tname = self.tname if self.usex else self.tname[group_z]
-            if vz == tname:
-                zz = self.time_values(group_z, decimal=mesh)
-                zlabel = "Year" if mesh else "Date"
-            else:
-                zz = selvar(self, vz)
-                zlabel = set_axis_label(zz)
-            zz = self.slice_miss(self.zd, zz)
-            if not trans_z:
-                zz = zz.T
-        else:
-            zlabel = ""
-        if y:
-            group_y, vy = vardim2var(y, self.groups)
-            tname = self.tname if self.usex else self.tname[group_y]
-            if vy == tname:
-                yy = self.time_values(group_y, decimal=mesh)
-                ylabel = "Year" if mesh else "Date"
-            else:
-                yy = selvar(self, vy)
-                ylabel = set_axis_label(yy)
-            yy = self.slice_miss(self.yd, yy)
-        else:
-            ylabel = ""
-        if x:
-            group_x, vx = vardim2var(x, self.groups)
-            tname = self.tname if self.usex else self.tname[group_x]
-            if vx == tname:
-                xx = self.time_values(group_x, decimal=mesh)
-                xlabel = "Year" if mesh else "Date"
-            else:
-                xx = selvar(self, vx)
-                xlabel = set_axis_label(xx)
-            xx = self.slice_miss(self.xd, xx)
-        else:
-            xlabel = ""
+        zmin, zmax = self._z_limits()
+
         if not z:
-            nx = xx.shape[0] if x else 1
-            ny = yy.shape[0] if y else 1
-            zz = np.ones((ny, nx)) * np.nan
-        if zz.ndim < 2:
-            print(f"Contour: z ({vz}) is not 2-dimensional:", zz.shape)
+            self.image.clear()
+            self._zz = None
             return
-        if not x:
-            xx = np.arange(zz.shape[1])
-        if not y:
-            yy = np.arange(zz.shape[0])
-        extend = "neither"
+
+        zz, zlabel, _zdate = self._series(z, self.zd)
+        if not self.checkBox_transposeZ.isChecked():
+            zz = zz.T
+        if zz.ndim < 2:
+            print(f"Contour: z ({z}) is not 2-dimensional:", zz.shape)
+            return
+
+        if x:
+            xx, xlabel, self._xdate = self._series(x, self.xd)
+        else:
+            xx, xlabel, self._xdate = np.arange(zz.shape[1], dtype=float), "", False
+        if y:
+            yy, ylabel, self._ydate = self._series(y, self.yd)
+        else:
+            yy, ylabel, self._ydate = np.arange(zz.shape[0], dtype=float), "", False
+
+        xx = xx[0, :] if xx.ndim > 1 else xx
+        yy = yy[:, 0] if yy.ndim > 1 else yy
+        if zz.shape != (yy.size, xx.size):
+            print(f"Contour: x ({x}), y ({y}), z ({z}) shapes do not match:",
+                  xx.shape, yy.shape, zz.shape)
+            self.image.clear()
+            self._zz = None
+            return
+
         if zmin is not None:
             zz = np.maximum(zz, zmin)
-            extend = "min" if zmax is None else "both"
         if zmax is not None:
             zz = np.minimum(zz, zmax)
-            extend = "max" if zmin is None else "both"
-        try:
-            if mesh:
-                contour = self.axes.pcolormesh(
-                    xx, yy, zz, vmin=zmin, vmax=zmax,
-                    cmap=cmap, shading="nearest")
-                colorbar = self.figure.colorbar(
-                    contour, fraction=0.05, shrink=0.75, extend=extend)
-            else:
-                contour = self.axes.contourf(
-                    xx, yy, zz, vmin=zmin, vmax=zmax,
-                    cmap=cmap, extend=extend)
-                colorbar = self.figure.colorbar(
-                    contour, fraction=0.05, shrink=0.75)
-        except Exception:
-            print(
-                f"Contour: x ({vx}), y ({vy}), z ({vz}) shapes do not match:",
-                xx.shape, yy.shape, zz.shape)
-            return
-        colorbar.set_label(zlabel)
-        self.axes.xaxis.set_label_text(xlabel)
-        self.axes.yaxis.set_label_text(ylabel)
-        self.axes.format_coord = lambda x0, y0: format_coord_contour(
-            x0, y0, self.axes, xx, yy, zz)
-        xlim = self.axes.get_xlim()
-        ylim = self.axes.get_ylim()
-        if inv_x:
-            self.axes.set_xlim(xlim[::-1])
-        if inv_y:
-            self.axes.set_ylim(ylim[::-1])
-        if grid:
-            self.axes.grid(True, color="white", linewidth=0.5)
-        self.canvas.draw()
-        self.toolbar.update()
+        finite = zz[np.isfinite(zz)]
+        levels = (
+            zmin if zmin is not None else (finite.min() if finite.size else 0.0),
+            zmax if zmax is not None else (finite.max() if finite.size else 1.0),
+        )
+
+        # ponytail: image cells are evenly spaced across the x/y extent;
+        # switch to pg.PColorMeshItem if irregular grids need exact spacing.
+        xedges, yedges = cell_edges(xx), cell_edges(yy)
+        self.image.setImage(zz, autoLevels=False)
+        self.image.setRect(QtCore.QRectF(
+            xedges[0], yedges[0],
+            xedges[-1] - xedges[0], yedges[-1] - yedges[0]))
+        self.colorbar.setColorMap(
+            self.selected_cmap_object(self.comboBox_cmap,
+                                      self.checkBox_revCmap))
+        self.colorbar.setLevels(low=levels[0], high=levels[1])
+        self.colorbar.setLabel("right", zlabel)
+
+        self._set_axis("bottom", self._xdate)
+        self._set_axis("left", self._ydate)
+        self.item.setLabel("bottom", xlabel)
+        self.item.setLabel("left", ylabel)
+        self.item.showGrid(x=self.checkBox_grid.isChecked(),
+                           y=self.checkBox_grid.isChecked(), alpha=0.5)
+        self.item.vb.invertX(self.checkBox_invX.isChecked())
+        self.item.vb.invertY(self.checkBox_invY.isChecked())
+        self.item.vb.autoRange(padding=0)
+        self._xx, self._yy, self._zz = xx, yy, zz
+
+    def _format_cursor(self, x, y):
+        if self._zz is None:
+            return ""
+        return format_coord_contour(x, y, self._xx, self._yy, self._zz,
+                                    self._xdate, self._ydate)
 
 
 __all__ = ["ContourPanel"]

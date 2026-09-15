@@ -132,6 +132,13 @@
          </widget>
         </item>
         <item>
+         <widget class="QCheckBox" name="checkBox_transVariable">
+          <property name="text">
+           <string>Transpose var</string>
+          </property>
+         </widget>
+        </item>
+        <item>
          <spacer name="variableControlsSpacer">
           <property name="orientation">
            <enum>Qt::Horizontal</enum>

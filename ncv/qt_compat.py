@@ -1,21 +1,23 @@
-"""PyQt5 and Matplotlib Qt backend imports used by ncv."""
+"""PyQt6 and pyqtgraph imports used by ncv."""
 from __future__ import annotations
 
 try:
-    from PyQt5 import QtCore, QtGui, QtWidgets
-    from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
-    from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
+    from PyQt6 import QtCore, QtGui, QtWidgets, uic
+    import pyqtgraph as pg
 
     QT_AVAILABLE = True
 except ModuleNotFoundError as exc:  # pragma: no cover - environment specific
-    QtCore = QtGui = QtWidgets = None
-    FigureCanvasQTAgg = NavigationToolbar2QT = None
+    QtCore = QtGui = QtWidgets = uic = pg = None
     QT_AVAILABLE = False
     QT_IMPORT_ERROR = exc
 else:
     QT_IMPORT_ERROR = None
+    pg.setConfigOptions(antialias=True, imageAxisOrder="row-major",
+                        background="w", foreground="k")
 
 
 def require_qt() -> None:
     if not QT_AVAILABLE:
-        raise RuntimeError("ncv requires PyQt5 to run the Qt viewer.") from QT_IMPORT_ERROR
+        raise RuntimeError(
+            "ncv requires PyQt6 and pyqtgraph to run the Qt viewer."
+        ) from QT_IMPORT_ERROR

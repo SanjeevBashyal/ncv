@@ -614,15 +614,12 @@
          </widget>
         </item>
         <item>
-         <widget class="QCheckBox" name="checkBox_mesh">
+         <widget class="QCheckBox" name="checkBox_fullRes">
           <property name="toolTip">
-           <string>Gridded or smooth plot</string>
+           <string>Draw every grid cell. Large grids are downsampled unless this is checked.</string>
           </property>
           <property name="text">
-           <string>mesh</string>
-          </property>
-          <property name="checked">
-           <bool>true</bool>
+           <string>full res</string>
           </property>
          </widget>
         </item>

@@ -402,19 +402,6 @@
          </widget>
         </item>
         <item>
-         <widget class="QCheckBox" name="checkBox_mesh">
-          <property name="toolTip">
-           <string>Show gridded else smooth</string>
-          </property>
-          <property name="text">
-           <string>mesh</string>
-          </property>
-          <property name="checked">
-           <bool>true</bool>
-          </property>
-         </widget>
-        </item>
-        <item>
          <widget class="QCheckBox" name="checkBox_grid">
           <property name="toolTip">
            <string>Show grids</string>

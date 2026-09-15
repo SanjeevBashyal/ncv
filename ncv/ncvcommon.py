@@ -1,10 +1,9 @@
 """Shared Qt helpers for ncv panels."""
 from __future__ import annotations
 
-import os
+import copy
 from pathlib import Path
 
-from matplotlib import pyplot as plt
 import numpy as np
 
 from .dimensions import dimension_values
@@ -13,10 +12,11 @@ from .ncvutils import (
     get_slice_values,
     parse_entry,
     selvar,
+    set_axis_label,
     set_miss,
     vardim2var,
 )
-from .qt_compat import QtCore, QtGui, QtWidgets
+from .qt_compat import QtCore, QtGui, QtWidgets, pg, uic
 from .session import HAVE_XARRAY, NcvSession
 
 
@@ -24,15 +24,50 @@ __all__ = [
     "DimensionControlRow",
     "PlotPanel",
     "TimeControlMixin",
+    "cursor_label",
     "float_or_none",
+    "load_ui",
     "parse_limits",
     "resource_path",
     "set_combo_items",
+    "to_plot_values",
 ]
 
 
 def resource_path(*parts: str) -> str:
     return str(Path(__file__).resolve().parent.joinpath(*parts))
+
+
+def load_ui(name: str, widget) -> None:
+    """Load ``ncv/ui/<name>.ui`` onto an existing widget."""
+    uic.loadUi(resource_path("ui", f"{name}.ui"), widget)
+
+
+def to_plot_values(values):
+    """Return ``(numeric array, is_datetime)`` that pyqtgraph can plot.
+
+    ``datetime64`` becomes POSIX seconds, which is what ``pg.DateAxisItem``
+    expects.  Everything else is coerced to float.
+    """
+    array = np.asarray(values)
+    if np.issubdtype(array.dtype, np.datetime64):
+        return array.astype("datetime64[s]").astype("float64"), True
+    return array.astype(float), False
+
+
+def cursor_label(plot_widget, layout, formatter):
+    """Add a read-out label under ``plot_widget`` fed by mouse position."""
+    label = QtWidgets.QLabel("")
+    layout.addWidget(label)
+    view = plot_widget.plotItem.vb
+
+    def moved(pos):
+        if plot_widget.plotItem.sceneBoundingRect().contains(pos):
+            point = view.mapSceneToView(pos)
+            label.setText(formatter(point.x(), point.y()))
+
+    plot_widget.scene().sigMouseMoved.connect(moved)
+    return label
 
 
 def float_or_none(value: str):
@@ -55,6 +90,15 @@ def parse_limits(text):
     if len(parts) != 2:
         return None, None
     return tuple(parse_entry(part.strip()) for part in parts)
+
+
+def _cmap_icon(cmap, width=64, height=12):
+    """Build a gradient swatch icon from a pyqtgraph colormap."""
+    lut = cmap.getLookupTable(nPts=width, alpha=False)
+    image = QtGui.QImage(width, 1, QtGui.QImage.Format.Format_RGB888)
+    for i, (red, green, blue) in enumerate(lut):
+        image.setPixel(i, 0, QtGui.qRgb(int(red), int(green), int(blue)))
+    return QtGui.QIcon(QtGui.QPixmap.fromImage(image.scaled(width, height)))
 
 
 def set_combo_items(combo, values, current=None):
@@ -85,7 +129,8 @@ class DimensionControlRow(QtWidgets.QWidget):
         while len(self.selectors) < max(count, 1):
             label = QtWidgets.QLabel(str(len(self.selectors)))
             selector = QtWidgets.QComboBox()
-            selector.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToContents)
+            selector.setSizeAdjustPolicy(
+                QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
             selector.currentIndexChanged.connect(self.changed)
             self.labels.append(label)
             self.selectors.append(selector)
@@ -339,14 +384,17 @@ class PlotPanel(QtWidgets.QWidget):
 
     def populate_cmap_combo(self, combo):
         combo.clear()
-        colormaps = sorted(c for c in plt.colormaps() if not c.endswith("_r"))
-        for cmap in colormaps:
-            icon_path = resource_path("images", f"{cmap}.png")
-            if os.path.exists(icon_path):
-                combo.addItem(QtGui.QIcon(icon_path), cmap)
-            else:
-                combo.addItem(cmap)
-        combo.setCurrentText("RdYlBu")
+        for name in sorted(pg.colormap.listMaps()):
+            combo.addItem(_cmap_icon(pg.colormap.get(name)), name)
+        combo.setCurrentText("viridis")
+
+    def selected_cmap_object(self, combo, reverse_check):
+        cmap = pg.colormap.get(combo.currentText() or "viridis")
+        if reverse_check.isChecked():
+            # pg caches colormaps and reverse() mutates in place
+            cmap = copy.deepcopy(cmap)
+            cmap.reverse()
+        return cmap
 
     def slice_miss(self, dim_controls: DimensionControlRow, variable):
         miss = get_miss(self, variable)
@@ -361,6 +409,26 @@ class PlotPanel(QtWidgets.QWidget):
         except IndexError:
             out = np.array([np.nan])
         return out
+
+    def _series(self, vardim, dim_controls):
+        """Return (values, label, is_datetime) for one combo selection."""
+        group, name = vardim2var(vardim, self.groups)
+        tname = self.tname if self.usex else self.tname[group]
+        if name == tname:
+            values, label = self.time_values(group), "Date"
+        else:
+            values = selvar(self, name)
+            label = set_axis_label(values)
+        values, is_date = to_plot_values(self.slice_miss(dim_controls, values))
+        return values, label, is_date
+
+    def _set_axis(self, axis, is_date):
+        """Swap an axis between plain and date ticks when the dtype changes."""
+        if isinstance(self.item.getAxis(axis), pg.DateAxisItem) == is_date:
+            return
+        self.item.setAxisItems({axis: (
+            pg.DateAxisItem(orientation=axis) if is_date
+            else pg.AxisItem(orientation=axis))})
 
     def reinit(self):
         self._copy_session()

@@ -1,6 +1,9 @@
 """Qt matrix panel."""
 from __future__ import annotations
 
+import html
+import re
+
 import numpy as np
 
 from .dimensions import (
@@ -12,12 +15,30 @@ from .ncvcommon import (
     DimensionControlRow,
     PlotPanel,
     TimeControlMixin,
+    load_ui,
     set_combo_items,
 )
 from .ncvmethods import get_miss
 from .ncvutils import get_slice_values, set_miss, vardim2var
-from .pyui.ui_matrix_panel import Ui_widget_matrixPanel
 from .qt_compat import QtCore, QtWidgets
+
+
+_ATTR = re.compile(r"^(\s*)([\w.][\w. ]*):(.*)$")
+
+
+def _metadata_html(text):
+    """Monospace, attribute names bold, netCDF4's <class ...> noise dropped."""
+    out = []
+    for line in text.splitlines():
+        if line.startswith("<class "):
+            continue
+        match = _ATTR.match(line)
+        if match:
+            indent, key, rest = match.groups()
+            out.append(f"{indent}<b>{html.escape(key)}:</b>{html.escape(rest)}")
+        else:
+            out.append(html.escape(line))
+    return "<pre>" + "\n".join(out) + "</pre>"
 
 
 def _format_value(value, number_format):
@@ -64,21 +85,22 @@ class _ArrayTableModel(QtCore.QAbstractTableModel):
     def _source_column(self, column):
         return self.columnCount() - column - 1 if self.flip_horizontal else column
 
-    def data(self, index, role=QtCore.Qt.DisplayRole):
+    def data(self, index, role=QtCore.Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
-        if role == QtCore.Qt.DisplayRole:
+        if role == QtCore.Qt.ItemDataRole.DisplayRole:
             row = self._source_row(index.row())
             column = self._source_column(index.column())
             return _format_value(self.values[row, column], self.data_format)
-        if role == QtCore.Qt.TextAlignmentRole:
-            return int(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        if role == QtCore.Qt.ItemDataRole.TextAlignmentRole:
+            return (QtCore.Qt.AlignmentFlag.AlignRight |
+                    QtCore.Qt.AlignmentFlag.AlignVCenter)
         return None
 
-    def headerData(self, section, orientation, role=QtCore.Qt.DisplayRole):
-        if role != QtCore.Qt.DisplayRole:
+    def headerData(self, section, orientation, role=QtCore.Qt.ItemDataRole.DisplayRole):
+        if role != QtCore.Qt.ItemDataRole.DisplayRole:
             return None
-        horizontal = orientation == QtCore.Qt.Horizontal
+        horizontal = orientation == QtCore.Qt.Orientation.Horizontal
         source = (self._source_column(section) if horizontal
                   else self._source_row(section))
         if self.show_indices:
@@ -107,7 +129,7 @@ class _ArrayTableModel(QtCore.QAbstractTableModel):
         self.endResetModel()
 
 
-class MatrixPanel(TimeControlMixin, PlotPanel, Ui_widget_matrixPanel):
+class MatrixPanel(TimeControlMixin, PlotPanel):
     """Array table and NetCDF metadata tab."""
 
     def __init__(self, window, session):
@@ -118,7 +140,7 @@ class MatrixPanel(TimeControlMixin, PlotPanel, Ui_widget_matrixPanel):
         self.reinit()
 
     def _build_ui(self):
-        self.setupUi(self)
+        load_ui("matrix_panel", self)
         self.connect_file_controls()
 
         self.model = _ArrayTableModel(self)
@@ -139,6 +161,8 @@ class MatrixPanel(TimeControlMixin, PlotPanel, Ui_widget_matrixPanel):
         self.zd.changed.connect(self.spinned_z)
         self.xd.changed.connect(self.redraw)
         self.yd.changed.connect(self.redraw)
+        self.checkBox_transVariable.stateChanged.connect(
+            lambda *_: self.redraw())
         self.checkBox_allValues.stateChanged.connect(self._update_statistics)
         self.comboBox_dataFormat.currentIndexChanged.connect(
             self._update_model_options)
@@ -314,6 +338,8 @@ class MatrixPanel(TimeControlMixin, PlotPanel, Ui_widget_matrixPanel):
             return
 
         array = np.asarray(raw)
+        if array.ndim == 2 and self.checkBox_transVariable.isChecked():
+            array = array.T
         if array.ndim == 0:
             array = array.reshape(1, 1)
         elif array.ndim == 1:
@@ -450,7 +476,7 @@ class MatrixPanel(TimeControlMixin, PlotPanel, Ui_widget_matrixPanel):
                 header = "\n\n".join(str(group) for group in groups)
                 parts.append(f"File: {name}\n{header}")
             text = "\n\n".join(parts)
-        self.textBrowser_showHeader.setPlainText(text)
+        self.textBrowser_showHeader.setHtml(_metadata_html(text))
 
     def _show_variable_metadata(self, vardim, warning=""):
         try:
@@ -465,7 +491,7 @@ class MatrixPanel(TimeControlMixin, PlotPanel, Ui_widget_matrixPanel):
             text = f"Variable: {vardim}\nUnable to read metadata: {exc}"
         if warning:
             text += f"\n\n{warning}"
-        self.textBrowser_showHeader.setPlainText(text)
+        self.textBrowser_showHeader.setHtml(_metadata_html(text))
 
 
 __all__ = ["MatrixPanel"]

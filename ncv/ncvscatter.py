@@ -3,18 +3,36 @@ from __future__ import annotations
 
 import ast
 
-from matplotlib import pyplot as plt
-from matplotlib.figure import Figure
 import numpy as np
 
 from .dimensions import dimension_specs, empty_dimension_specs
-from .ncvcommon import DimensionControlRow, PlotPanel, parse_limits
-from .ncvcommon import set_combo_items
-from .ncvutils import format_coord_scatter
-from .ncvutils import selvar, set_axis_label, vardim2var
-from .pyui.ui_scatter_panel import Ui_ScatterPanel
-from .qt_compat import FigureCanvasQTAgg, NavigationToolbar2QT
-from .qt_compat import QtWidgets
+from .ncvcommon import DimensionControlRow, PlotPanel, cursor_label, load_ui
+from .ncvcommon import parse_limits, set_combo_items
+from .ncvutils import datetime_str
+from .qt_compat import QtCore, QtWidgets, pg
+
+
+# matplotlib style strings kept in the .ui, mapped onto Qt/pyqtgraph
+PEN_STYLES = {
+    "-": QtCore.Qt.PenStyle.SolidLine,
+    "--": QtCore.Qt.PenStyle.DashLine,
+    "-.": QtCore.Qt.PenStyle.DashDotLine,
+    ":": QtCore.Qt.PenStyle.DotLine,
+}
+SYMBOLS = {
+    "o": "o", "s": "s", "d": "d", "D": "d", "p": "p", "h": "h",
+    "+": "+", "x": "x", "*": "star",
+    "^": "t1", "v": "t", "<": "t2", ">": "t3",
+}
+# PlotDataItem.setData(**style) with no x/y is a DATA call and blanks the curve;
+# these setters change style in place.
+SETTERS = {
+    "pen": "setPen",
+    "symbol": "setSymbol",
+    "symbolSize": "setSymbolSize",
+    "symbolBrush": "setSymbolBrush",
+    "symbolPen": "setSymbolPen",
+}
 
 
 def _maybe_color(value: str):
@@ -25,46 +43,40 @@ def _maybe_color(value: str):
     return parsed if isinstance(parsed, tuple) else value
 
 
-def _minmax_ylim(ylim, ylim2):
-    ymin = None
-    ymax = None
-    if isinstance(ylim, (list, tuple)) and isinstance(ylim2, (list, tuple)):
-        values = list(ylim) + list(ylim2)
-        if all(value is not None for value in values):
-            ymin = min(values)
-            ymax = max(values)
-    return ymin, ymax
+def _float_or(value, default=1.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
-def _resolved_limits(limits, current):
-    return [
-        fallback if value is None else value
-        for value, fallback in zip(limits, current)
-    ]
-
-
-class ScatterPanel(PlotPanel, Ui_ScatterPanel):
+class ScatterPanel(PlotPanel):
     """Scatter and line plot tab."""
 
     def __init__(self, window, session):
         super().__init__(window, session, "Scatter/Line")
-        self.line_y = []
-        self.line_y2 = []
+        self.curves_y = []
+        self.curves_y2 = []
         self._build_ui()
         self.reinit()
 
     def _build_ui(self):
-        self.setupUi(self)
+        load_ui("scatter_panel", self)
         self.connect_file_controls()
-        self.figure = Figure(facecolor="white", figsize=(1, 1))
-        self.axes = self.figure.add_subplot(111)
-        self.axes2 = self.axes.twinx()
-        self.axes2.yaxis.set_label_position("right")
-        self.axes2.yaxis.tick_right()
-        self.canvas = FigureCanvasQTAgg(self.figure)
-        self.toolbar = NavigationToolbar2QT(self.canvas, self)
-        self.plotLayout.addWidget(self.canvas, 1)
-        self.plotLayout.addWidget(self.toolbar)
+
+        self.plot = pg.PlotWidget()
+        self.plot.showGrid(x=True, y=True, alpha=0.3)
+        self.item = self.plot.plotItem
+        self.item.showAxis("right")
+        # second y-axis: a view box sharing the x range (pyqtgraph's twinx)
+        self.vb2 = pg.ViewBox()
+        self.item.scene().addItem(self.vb2)
+        self.item.getAxis("right").linkToView(self.vb2)
+        self.vb2.setXLink(self.item)
+        self.item.vb.sigResized.connect(
+            lambda: self.vb2.setGeometry(self.item.vb.sceneBoundingRect()))
+        self.plotLayout.addWidget(self.plot, 1)
+        cursor_label(self.plot, self.plotLayout, self._format_cursor)
 
         self.xd = DimensionControlRow(self.maxdim)
         self.yd = DimensionControlRow(self.maxdim)
@@ -72,22 +84,6 @@ class ScatterPanel(PlotPanel, Ui_ScatterPanel):
         self.xDimensionsLayout.addWidget(self.xd)
         self.yDimensionsLayout.addWidget(self.yd)
         self.y2DimensionsLayout.addWidget(self.y2d)
-
-        colors = list(plt.rcParams["axes.prop_cycle"])
-        col1 = colors[0]["color"]
-        col2 = colors[3]["color"]
-        for entry in (
-            self.lineEdit_lineColorY1,
-            self.lineEdit_markerFillColorY1,
-            self.lineEdit_markerEdgeColorY1,
-        ):
-            entry.setText(col1)
-        for entry in (
-            self.lineEdit_lineColorY2,
-            self.lineEdit_markerFillColorY2,
-            self.lineEdit_markerEdgeColorY2,
-        ):
-            entry.setText(col2)
 
         self.comboBox_x.currentIndexChanged.connect(self.selected_x)
         self.checkBox_invX.stateChanged.connect(self.checked_x)
@@ -138,12 +134,14 @@ class ScatterPanel(PlotPanel, Ui_ScatterPanel):
         self.lineEdit_xlim.setText("None")
         self.lineEdit_ylim.setText("None")
         self.lineEdit_y2lim.setText("None")
+        self._xdate = self._ydate = False
         self._updating = False
+
+    # ---------------------------------------------------------------- events
 
     def checked_x(self):
         if not self._updating:
-            self.redraw_y()
-            self.redraw_y2()
+            self._apply_limits()
 
     def checked_y(self):
         if not self._updating:
@@ -204,217 +202,146 @@ class ScatterPanel(PlotPanel, Ui_ScatterPanel):
         if not self._updating:
             self.redraw()
 
+    # ----------------------------------------------------------------- style
+
+    def _style(self, suffix):
+        """Pen and symbol options from the Y1/Y2 style entries."""
+        text = lambda name: getattr(self, f"lineEdit_{name}{suffix}").text()
+        style = PEN_STYLES.get(text("lineStyle"))
+        color = _maybe_color(text("lineColor"))
+        pen = None
+        if style is not None and color != "None":
+            pen = pg.mkPen(color=color, width=_float_or(text("lineWidth")),
+                           style=style)
+        symbol = SYMBOLS.get(text("markerStyle"))
+        options = {"pen": pen, "symbol": symbol}
+        if symbol is not None:
+            fill = _maybe_color(text("markerFillColor"))
+            edge = _maybe_color(text("markerEdgeColor"))
+            options["symbolSize"] = _float_or(text("markerSize"))
+            options["symbolBrush"] = (
+                None if fill == "None" else pg.mkBrush(fill))
+            options["symbolPen"] = (
+                None if edge == "None" else
+                pg.mkPen(color=edge,
+                         width=_float_or(text("markerEdgeWidth"))))
+        return options, color
+
+    def _restyle(self, curves, suffix, axis):
+        options, color = self._style(suffix)
+        for curve in curves:
+            for key, value in options.items():
+                getattr(curve, SETTERS[key])(value)
+        if color != "None":
+            self.item.getAxis(axis).setPen(pg.mkPen(color))
+            self.item.getAxis(axis).setTextPen(pg.mkPen(color))
+
+    # ------------------------------------------------------------- redrawing
+
     def redraw_y(self):
-        y = self.comboBox_y.currentText()
-        if not y:
+        if not self.comboBox_y.currentText():
             return
-        inv_y = self.checkBox_invY.isChecked()
-        ylim = parse_limits(self.lineEdit_ylim.text())
-        ylim2 = parse_limits(self.lineEdit_y2lim.text())
-        line_style = self.lineEdit_lineStyleY1.text()
-        line_width = float(self.lineEdit_lineWidthY1.text())
-        color = _maybe_color(self.lineEdit_lineColorY1.text())
-        marker = self.lineEdit_markerStyleY1.text()
-        marker_size = float(self.lineEdit_markerSizeY1.text())
-        marker_fill = _maybe_color(self.lineEdit_markerFillColorY1.text())
-        marker_edge = _maybe_color(self.lineEdit_markerEdgeColorY1.text())
-        marker_edge_width = float(self.lineEdit_markerEdgeWidthY1.text())
-        y2 = self.comboBox_y2.currentText()
-        same_y = self.checkBox_sameYaxis.isChecked()
-        plot_args = {
-            "linestyle": line_style,
-            "linewidth": line_width,
-            "marker": marker,
-            "markersize": marker_size,
-            "markerfacecolor": marker_fill,
-            "markeredgecolor": marker_edge,
-            "markeredgewidth": marker_edge_width,
-        }
-        group, variable = vardim2var(y, self.groups)
-        tname = self.tname if self.usex else self.tname[group]
-        if variable == tname:
-            ylabel = "Date"
-            plot_args["color"] = color
-        else:
-            ylabel = set_axis_label(selvar(self, variable))
-            if len(self.line_y) == 1:
-                plot_args["color"] = color
-        for line in self.line_y:
-            plt.setp(line, **plot_args)
-        if "color" in plot_args and plot_args["color"] != "None":
-            self.axes.spines["left"].set_color(plot_args["color"])
-            self.axes.tick_params(axis="y", colors=plot_args["color"])
-            self.axes.yaxis.label.set_color(plot_args["color"])
-        self.axes.yaxis.set_label_text(ylabel)
-        ylim = _resolved_limits(ylim, self.axes.get_ylim())
-        ylim2 = _resolved_limits(ylim2, self.axes2.get_ylim())
-        if same_y and y2:
-            ymin, ymax = _minmax_ylim(ylim, ylim2)
-            if ymin is not None and ymax is not None:
-                ylim = [ymin, ymax]
-                ylim2 = [ymin, ymax]
-            self.axes.set_ylim(ylim)
-            self.axes2.set_ylim(ylim2)
-        if inv_y and ylim[0] is not None:
-            if ylim[0] < ylim[1]:
-                ylim = ylim[::-1]
-            self.axes.set_ylim(ylim)
-        else:
-            if ylim[1] < ylim[0]:
-                ylim = ylim[::-1]
-            self.axes.set_ylim(ylim)
-        self._apply_x_limits()
-        self.canvas.draw()
-        self.toolbar.update()
+        self._restyle(self.curves_y, "Y1", "left")
+        self._apply_limits()
 
     def redraw_y2(self):
-        y2 = self.comboBox_y2.currentText()
-        if not y2:
+        if not self.comboBox_y2.currentText():
             return
-        y = self.comboBox_y.currentText()
-        inv_y2 = self.checkBox_invY2.isChecked()
-        same_y = self.checkBox_sameYaxis.isChecked()
-        ylim = parse_limits(self.lineEdit_ylim.text())
-        ylim2 = parse_limits(self.lineEdit_y2lim.text())
-        plot_args = {
-            "linestyle": self.lineEdit_lineStyleY2.text(),
-            "linewidth": float(self.lineEdit_lineWidthY2.text()),
-            "marker": self.lineEdit_markerStyleY2.text(),
-            "markersize": float(self.lineEdit_markerSizeY2.text()),
-            "markerfacecolor": _maybe_color(
-                self.lineEdit_markerFillColorY2.text()),
-            "markeredgecolor": _maybe_color(
-                self.lineEdit_markerEdgeColorY2.text()),
-            "markeredgewidth": float(
-                self.lineEdit_markerEdgeWidthY2.text()),
-        }
-        color = _maybe_color(self.lineEdit_lineColorY2.text())
-        group, variable = vardim2var(y2, self.groups)
-        tname = self.tname if self.usex else self.tname[group]
-        if variable == tname:
-            ylabel = "Date"
-            plot_args["color"] = color
-        else:
-            ylabel = set_axis_label(selvar(self, variable))
-            if len(self.line_y2) == 1:
-                plot_args["color"] = color
-        for line in self.line_y2:
-            plt.setp(line, **plot_args)
-        if "color" in plot_args and plot_args["color"] != "None":
-            self.axes2.spines["right"].set_color(plot_args["color"])
-            self.axes2.tick_params(axis="y", colors=plot_args["color"])
-            self.axes2.yaxis.label.set_color(plot_args["color"])
-        self.axes2.yaxis.set_label_text(ylabel)
-        ylim = _resolved_limits(ylim, self.axes.get_ylim())
-        ylim2 = _resolved_limits(ylim2, self.axes2.get_ylim())
-        if same_y and y:
-            ymin, ymax = _minmax_ylim(ylim, ylim2)
-            if ymin is not None and ymax is not None:
-                ylim = [ymin, ymax]
-                ylim2 = [ymin, ymax]
-            self.axes.set_ylim(ylim)
-            self.axes2.set_ylim(ylim2)
-        ylim = ylim2
-        if inv_y2 and ylim[0] is not None:
-            if ylim[0] < ylim[1]:
-                ylim = ylim[::-1]
-            self.axes2.set_ylim(ylim)
-        else:
-            if ylim[1] < ylim[0]:
-                ylim = ylim[::-1]
-            self.axes2.set_ylim(ylim)
-        self._apply_x_limits()
-        self.canvas.draw()
-        self.toolbar.update()
+        self._restyle(self.curves_y2, "Y2", "right")
+        self._apply_limits()
 
-    def _apply_x_limits(self):
-        inv_x = self.checkBox_invX.isChecked()
-        xlim = _resolved_limits(
-            parse_limits(self.lineEdit_xlim.text()), self.axes.get_xlim())
-        if inv_x and xlim[0] is not None:
-            if xlim[0] < xlim[1]:
-                xlim = xlim[::-1]
-            self.axes.set_xlim(xlim)
+    def _range(self, text, view, invert, axis):
+        """Apply one axis limit entry; auto-range when it is None."""
+        low, high = parse_limits(text)
+        if low is None or high is None:
+            # enableAutoRange only rescales when the flag CHANGES, and pyqtgraph
+            # defaults it to on - so ask for the rescale explicitly.
+            view.enableAutoRange(axis=axis)
+            view.updateAutoRange()
         else:
-            if xlim[1] < xlim[0]:
-                xlim = xlim[::-1]
-            self.axes.set_xlim(xlim)
+            view.setRange(**{f"{axis}Range": sorted((low, high))}, padding=0)
+        setter = view.invertX if axis == "x" else view.invertY
+        setter(bool(invert))
+
+    def _apply_limits(self):
+        same_y = (self.checkBox_sameYaxis.isChecked()
+                  and self.comboBox_y.currentText()
+                  and self.comboBox_y2.currentText())
+        self._range(self.lineEdit_xlim.text(), self.item.vb,
+                    self.checkBox_invX.isChecked(), "x")
+        if same_y:
+            # union of both y ranges on both axes
+            bounds = [v for view in (self.item.vb, self.vb2)
+                      for v in view.childrenBounds()[1] or []]
+            if bounds:
+                span = (min(bounds), max(bounds))
+                self.item.vb.setYRange(*span, padding=0)
+                self.vb2.setYRange(*span, padding=0)
+        else:
+            self._range(self.lineEdit_ylim.text(), self.item.vb, False, "y")
+            self._range(self.lineEdit_y2lim.text(), self.vb2, False, "y")
+        self.item.vb.invertY(self.checkBox_invY.isChecked())
+        self.vb2.invertY(self.checkBox_invY2.isChecked())
+
+    def _add_curves(self, view, xx, yy, suffix):
+        options, _color = self._style(suffix)
+        columns = yy.T if yy.ndim > 1 else [yy]
+        curves = []
+        for column in columns:
+            curve = pg.PlotDataItem(xx, column, **options)
+            view.addItem(curve)
+            curves.append(curve)
+        return curves
 
     def redraw(self):
         x = self.comboBox_x.currentText()
         y = self.comboBox_y.currentText()
         y2 = self.comboBox_y2.currentText()
-        self.axes.clear()
-        self.axes2.clear()
-        self.axes2.yaxis.set_label_position("right")
-        self.axes2.yaxis.tick_right()
-        vx = vy = vy2 = "None"
-        if y or y2:
-            if y:
-                group, vy = vardim2var(y, self.groups)
-                tname = self.tname if self.usex else self.tname[group]
-                if vy == tname:
-                    yy = self.time_values(group)
-                    ylabel = "Date"
-                else:
-                    yy = selvar(self, vy)
-                    ylabel = set_axis_label(yy)
-                yy = self.slice_miss(self.yd, yy)
-            if y2:
-                group2, vy2 = vardim2var(y2, self.groups)
-                tname = self.tname if self.usex else self.tname[group2]
-                if vy2 == tname:
-                    yy2 = self.time_values(group2)
-                    ylabel2 = "Date"
-                else:
-                    yy2 = selvar(self, vy2)
-                    ylabel2 = set_axis_label(yy2)
-                yy2 = self.slice_miss(self.y2d, yy2)
-            if x:
-                group_x, vx = vardim2var(x, self.groups)
-                tname = self.tname if self.usex else self.tname[group_x]
-                if vx == tname:
-                    xx = self.time_values(group_x)
-                    xlabel = "Date"
-                else:
-                    xx = selvar(self, vx)
-                    xlabel = set_axis_label(xx)
-                xx = self.slice_miss(self.xd, xx)
-            else:
-                nx = yy.shape[0] if y else yy2.shape[0]
-                xx = np.arange(nx)
-                xlabel = ""
-            if not y:
-                yy = np.ones_like(xx, dtype="float") * np.nan
-                ylabel = ""
-            if not y2:
-                yy2 = np.ones_like(xx, dtype="float") * np.nan
-                ylabel2 = ""
-            try:
-                self.line_y = self.axes.plot(xx, yy)
-            except Exception:
-                print(
-                    f"Scatter: x ({vx}) and y ({vy}) shapes do not match:",
-                    xx.shape, yy.shape)
-                return
-            try:
-                self.line_y2 = self.axes2.plot(xx, yy2)
-            except Exception:
-                print(
-                    f"Scatter: x ({vx}) and y2 ({vy2}) shapes do not match:",
-                    xx.shape, yy2.shape)
-                return
-            self.axes.xaxis.set_label_text(xlabel)
-            self.axes.yaxis.set_label_text(ylabel)
-            self.axes2.xaxis.set_label_text(xlabel)
-            self.axes2.yaxis.set_label_text(ylabel2)
-            self.axes2.format_coord = lambda x0, y0: format_coord_scatter(
-                x0, y0, self.axes, self.axes2,
-                xx.dtype, yy.dtype, yy2.dtype)
-            self.redraw_y()
-            self.redraw_y2()
-        self.canvas.draw()
-        self.toolbar.update()
+        self.item.clear()
+        self.vb2.clear()
+        self.curves_y = []
+        self.curves_y2 = []
+        if not (y or y2):
+            return
+
+        yy = yy2 = None
+        ylabel = ylabel2 = ""
+        if y:
+            yy, ylabel, self._ydate = self._series(y, self.yd)
+        if y2:
+            yy2, ylabel2, _y2date = self._series(y2, self.y2d)
+        if x:
+            xx, xlabel, self._xdate = self._series(x, self.xd)
+        else:
+            xx = np.arange((yy if y else yy2).shape[0], dtype=float)
+            xlabel, self._xdate = "", False
+
+        self._set_axis("bottom", self._xdate)
+        self._set_axis("left", self._ydate)
+        self.item.setLabel("bottom", xlabel)
+        self.item.setLabel("left", ylabel)
+        self.item.setLabel("right", ylabel2)
+
+        for name, values, view, suffix, target in (
+            (y, yy, self.item, "Y1", "curves_y"),
+            (y2, yy2, self.vb2, "Y2", "curves_y2"),
+        ):
+            if not name:
+                continue
+            if values.shape[0] != xx.shape[0]:
+                print(f"Scatter: x and {name} shapes do not match:",
+                      xx.shape, values.shape)
+                continue
+            setattr(self, target, self._add_curves(view, xx, values, suffix))
+
+        self.redraw_y()
+        self.redraw_y2()
+        self._apply_limits()
+
+    def _format_cursor(self, x, y):
+        xstr = datetime_str(x) if self._xdate else f"{x:.6g}"
+        ystr = datetime_str(y) if self._ydate else f"{y:.6g}"
+        return f"x={xstr}, y={ystr}"
 
 
 __all__ = ["ScatterPanel"]
