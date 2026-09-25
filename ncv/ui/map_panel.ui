@@ -46,7 +46,7 @@
      <item>
       <spacer name="horizontalSpacer_fileControls">
        <property name="orientation">
-        <enum>Qt::Horizontal</enum>
+        <enum>Qt::Orientation::Horizontal</enum>
        </property>
        <property name="sizeHint" stdset="0">
         <size>
@@ -144,7 +144,7 @@
            <string>Choose the variable to plot</string>
           </property>
           <property name="sizeAdjustPolicy">
-           <enum>QComboBox::AdjustToContents</enum>
+           <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
           </property>
          </widget>
         </item>
@@ -158,7 +158,7 @@
         <item>
          <spacer name="horizontalSpacer_variableControls">
           <property name="orientation">
-           <enum>Qt::Horizontal</enum>
+           <enum>Qt::Orientation::Horizontal</enum>
           </property>
           <property name="sizeHint" stdset="0">
            <size>
@@ -265,7 +265,7 @@
            </sizepolicy>
           </property>
           <property name="sizeAdjustPolicy">
-           <enum>QComboBox::AdjustToContents</enum>
+           <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
           </property>
          </widget>
         </item>
@@ -286,10 +286,10 @@
         <item>
          <spacer name="horizontalSpacer_longitude">
           <property name="orientation">
-           <enum>Qt::Horizontal</enum>
+           <enum>Qt::Orientation::Horizontal</enum>
           </property>
           <property name="sizeType">
-           <enum>QSizePolicy::Fixed</enum>
+           <enum>QSizePolicy::Policy::Fixed</enum>
           </property>
           <property name="sizeHint" stdset="0">
            <size>
@@ -346,7 +346,7 @@
            </sizepolicy>
           </property>
           <property name="sizeAdjustPolicy">
-           <enum>QComboBox::AdjustToContents</enum>
+           <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
           </property>
          </widget>
         </item>
@@ -360,7 +360,7 @@
         <item>
          <spacer name="horizontalSpacer_latitude">
           <property name="orientation">
-           <enum>Qt::Horizontal</enum>
+           <enum>Qt::Orientation::Horizontal</enum>
           </property>
           <property name="sizeHint" stdset="0">
            <size>
@@ -411,7 +411,7 @@
            <number>1</number>
           </property>
           <property name="orientation">
-           <enum>Qt::Horizontal</enum>
+           <enum>Qt::Orientation::Horizontal</enum>
           </property>
          </widget>
         </item>
@@ -542,7 +542,7 @@
            <number>1</number>
           </property>
           <property name="sizeAdjustPolicy">
-           <enum>QComboBox::AdjustToContents</enum>
+           <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
           </property>
           <item>
            <property name="text">
@@ -599,7 +599,7 @@
            <string>Choose the colormap</string>
           </property>
           <property name="sizeAdjustPolicy">
-           <enum>QComboBox::AdjustToContents</enum>
+           <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
           </property>
          </widget>
         </item>
@@ -614,12 +614,12 @@
          </widget>
         </item>
         <item>
-         <widget class="QCheckBox" name="checkBox_fullRes">
+         <widget class="QCheckBox" name="checkBox_fullCoarse">
           <property name="toolTip">
-           <string>Draw every grid cell. Large grids are downsampled unless this is checked.</string>
+           <string>Show the whole variable at reduced resolution. Unticked, it loads at full resolution - all at once if it fits in memory, otherwise in chunks you move through with the scroll bars.</string>
           </property>
           <property name="text">
-           <string>full res</string>
+           <string>full (coarse)</string>
           </property>
          </widget>
         </item>
@@ -689,7 +689,7 @@
         <item>
          <spacer name="horizontalSpacer_mapOptions">
           <property name="orientation">
-           <enum>Qt::Horizontal</enum>
+           <enum>Qt::Orientation::Horizontal</enum>
           </property>
           <property name="sizeHint" stdset="0">
            <size>
@@ -712,8 +712,14 @@
         </item>
         <item>
          <widget class="QComboBox" name="comboBox_projection">
+          <property name="toolTip">
+           <string>Select the projection of the map</string>
+          </property>
           <property name="currentIndex">
            <number>18</number>
+          </property>
+          <property name="sizeAdjustPolicy">
+           <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
           </property>
           <item>
            <property name="text">
@@ -835,13 +841,6 @@
             <string>TransverseMercator</string>
            </property>
           </item>
-
-          <property name="toolTip">
-           <string>Select the projection of the map</string>
-          </property>
-          <property name="sizeAdjustPolicy">
-           <enum>QComboBox::AdjustToContents</enum>
-          </property>
          </widget>
         </item>
         <item>
@@ -870,7 +869,7 @@
         <item>
          <spacer name="horizontalSpacer_projection">
           <property name="orientation">
-           <enum>Qt::Horizontal</enum>
+           <enum>Qt::Orientation::Horizontal</enum>
           </property>
           <property name="sizeHint" stdset="0">
            <size>

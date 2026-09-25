@@ -18,12 +18,15 @@ from .dimensions import (
 from .ncvcommon import (
     DimensionControlRow,
     PlotPanel,
-    MAX_CELLS,
     ScrollableView,
     TimeControlMixin,
+    color_levels,
     cursor_label,
+    native_levels,
+    set_no_data_colors,
     float_or_none,
     load_ui,
+    memory_budget_cells,
     set_combo_items,
 )
 from .ncvmethods import get_miss
@@ -50,8 +53,9 @@ __all__ = [
 ]
 
 
-# PColorMeshItem costs ~3.5 us per cell; keep a frame near a second
-MAX_CELLS = 250_000
+# PColorMeshItem costs ~3.5 us per cell; cap curved-projection renders near 1 s.
+# Flat projections draw an ImageItem, which renders 16M cells in 0.06 s.
+MESH_MAX_CELLS = 4000_000
 # projections whose x depends only on longitude and y only on latitude,
 # so a plain image with a rectangle extent is exact (and far faster)
 SEPARABLE = ("PlateCarree", "Mercator", "Miller", "LambertCylindrical")
@@ -149,14 +153,12 @@ def _nan_joined(rings):
     return joined[:, 0], joined[:, 1]
 
 
-def decimation_stride(shape, full_resolution=False):
-    """Stride that keeps a grid under ``MAX_CELLS`` cells."""
-    if full_resolution:
-        return 1
+def decimation_stride(shape):
+    """Stride that keeps a quad-mesh render under ``MESH_MAX_CELLS`` cells."""
     cells = int(shape[0]) * int(shape[1])
-    if cells <= MAX_CELLS:
+    if cells <= MESH_MAX_CELLS:
         return 1
-    return int(np.ceil(np.sqrt(cells / MAX_CELLS)))
+    return int(np.ceil(np.sqrt(cells / MESH_MAX_CELLS)))
 
 
 def spans_globe(lon, tol=1.0):
@@ -213,11 +215,27 @@ class MapPanel(TimeControlMixin, PlotPanel):
         self.colorbar = pg.ColorBarItem(interactive=False)
         self._colorbar_added = False
         self.scroll = ScrollableView(self.plot)
+        # the bars choose which chunk (patch) is loaded; mouse pan/zoom is
+        # pure navigation and never reads - a map is viewed at world scale,
+        # where no chunk can contain the view
         self.scroll.windowChanged.connect(self._scrolled)
+        for bar in (self.scroll.vbar, self.scroll.hbar):
+            bar.sliderReleased.connect(self._scrolled)
+        self._zoom_settle = QtCore.QTimer(self)
+        self._zoom_settle.setSingleShot(True)
+        self._zoom_settle.setInterval(200)
+        self._zoom_settle.timeout.connect(self._check_resolution)
+        self.item.vb.sigRangeChanged.connect(
+            lambda *_args: self._zoom_settle.start())
+        self._read_stride = 1
+        self._patch = None
+        self._loaded_bars = None
+        self._keep_view = False
         self.plotLayout.addWidget(self.scroll, 1)
         cursor_label(self.plot, self.plotLayout, self._format_cursor)
-        self._overview = True
-        self._vwindow = None
+        self._mesh_stride = 1
+        self._view_key = None
+        self._native_levels = None
         self._overlays = []
         self.data_item = None
         self.iproj = None
@@ -261,7 +279,7 @@ class MapPanel(TimeControlMixin, PlotPanel):
         self.lond.changed.connect(self.spinned_lon)
         self.latd.changed.connect(self.spinned_lat)
         self.comboBox_cmap.currentIndexChanged.connect(self.selected_cmap)
-        for check in (self.checkBox_revCmap, self.checkBox_fullRes,
+        for check in (self.checkBox_revCmap, self.checkBox_fullCoarse,
                       self.checkBox_global, self.checkBox_coast,
                       self.checkBox_borders, self.checkBox_rivers,
                       self.checkBox_lakes, self.checkBox_grid):
@@ -319,47 +337,85 @@ class MapPanel(TimeControlMixin, PlotPanel):
     # ---------------------------------------------------------------- events
 
     def _scrolled(self):
-        if not self._updating:
-            self._overview = False
-            self.redraw()
+        # a drag loads once, on release: loading at every pause *during* a drag
+        # queued a dozen ~1 s reads and froze the window
+        bars = (self.scroll.vbar, self.scroll.hbar)
+        if (self._updating or self.data_item is None
+                or any(bar.isSliderDown() for bar in bars)
+                or self.scroll.offsets() == self._loaded_bars):
+            return
+        self.redraw()
 
-    def _scroll_window(self, vardim):
-        """Window for the current scroll position; sizes the bars to match."""
-        try:
-            _group, _name, variable = resolve_selected_variable(self, vardim)
-        except Exception:
-            return None
-        if getattr(variable, "ndim", 0) < 2:
-            self.scroll.set_extent(0, 0, 0, 0)
-            self._vwindow = None
-            return None
-        values = self.vd.values()
-        values.extend(["0"] * max(0, variable.ndim - len(values)))
-        window, shape, span = self.read_window(
-            variable, values, self.scroll.offsets(), self._overview)
-        if shape is None:
-            self.scroll.set_extent(0, 0, 0, 0)
-            self._vwindow = None
-            return None
-        self.scroll.set_extent(shape[0], shape[1], span[0], span[1])
-        axes = sorted(window)
-        self._vwindow = (window[axes[0]], window[axes[1]])
-        return window
+    def _cells_per_pixel(self, patch, view):
+        """Read stride the screen can resolve: patch cells per screen pixel."""
+        width, height, cols, rows = patch
+        (x0, x1), (y0, y1) = view
+        vb = self.item.vb
+        if width <= 0 or height <= 0 or vb.width() <= 0 or vb.height() <= 0:
+            return 1
+        per_x = cols * (x1 - x0) / (width * vb.width())
+        per_y = rows * (y1 - y0) / (height * vb.height())
+        return max(1, int(min(per_x, per_y)))
 
-    def _coord_window(self, vardim, is_lon):
-        """Same region/stride as the variable, for a 1-D or 2-D coordinate."""
-        if self._vwindow is None:
+    def _world_view(self):
+        """The range the aspect-locked view will really show for the world:
+        one axis widens to the widget's shape."""
+        (x0, x1), (y0, y1) = self.iproj.x_limits, self.iproj.y_limits
+        vb = self.item.vb
+        width, height = x1 - x0, y1 - y0
+        if vb.height() > 0 and height > 0:
+            aspect = vb.width() / vb.height()
+            if width / height < aspect:
+                width = height * aspect
+            else:
+                height = width / aspect
+        return (0.0, width), (0.0, height)
+
+    def _patch_bounds(self, x, y, transposed):
+        """Projected width/height of the patch and its full-resolution
+        columns/rows - from four corner coordinates, not the data."""
+        if not (x and y) or self._zwindow is None:
             return None
-        rows_w, cols_w = self._vwindow
-        if self.checkBox_transVariable.isChecked():
-            rows_w, cols_w = cols_w, rows_w
+        (r0, r1, _s), (c0, c1, _t) = self._zwindow
+        rows, cols = (c1 - c0, r1 - r0) if transposed else (r1 - r0, c1 - c0)
+        ranges = []
+        for vardim, dims, is_x in ((x, self.lond, True), (y, self.latd, False)):
+            window = self.coord_window(vardim, is_x, transposed)
+            if window is None:
+                return None
+            ends = {a: (w[0], w[1], max(1, w[1] - w[0] - 1))
+                    for a, w in window.items()}          # first and last only
+            values = self._coordinate_values(vardim, dims, window=ends).ravel()
+            ranges.append((np.nanmin(values), np.nanmax(values)))
+        (lon0, lon1), (lat0, lat1) = ranges
+        lonm, latm = 0.5 * (lon0 + lon1), 0.5 * (lat0 + lat1)
+        pts = self.iproj.transform_points(
+            ccrs.PlateCarree(), np.array([lon0, lon1, lonm, lonm]),
+            np.array([latm, latm, lat0, lat1]))
+        width = abs(pts[1, 0] - pts[0, 0])
+        height = abs(pts[3, 1] - pts[2, 1])
+        if not (np.isfinite(width) and np.isfinite(height)):
+            return None
+        return width, height, cols, rows
+
+    def _check_resolution(self):
+        """After a zoom settles, re-read the patch only if the screen now
+        needs a resolution at least 2x different from what was read."""
+        if self._updating or self.data_item is None or self._patch is None:
+            return
+        need = self._cells_per_pixel(self._patch, self.item.vb.viewRange())
+        if need * 2 <= self._read_stride or need >= 2 * self._read_stride:
+            self._keep_view = True
+            try:
+                self.redraw()
+            finally:
+                self._keep_view = False
+
+    def _coord_ndim(self, vardim):
         try:
-            _group, _name, variable = resolve_selected_variable(self, vardim)
+            return resolve_selected_variable(self, vardim)[2].ndim
         except Exception:
-            return None
-        if getattr(variable, "ndim", 0) == 1:
-            return {0: cols_w if is_lon else rows_w}
-        return {0: rows_w, 1: cols_w}
+            return 1
 
     def checked(self):
         if not self._updating:
@@ -416,7 +472,6 @@ class MapPanel(TimeControlMixin, PlotPanel):
             self._sync_time_controls()
             self.redraw()
             return
-        self._overview = True
         self.vd.set_specs(dimension_specs(self, v, "var"))
         self.set_unlim(v)
         self.set_tstep(0)
@@ -451,9 +506,12 @@ class MapPanel(TimeControlMixin, PlotPanel):
         # A 2-D variable has no leading dims, so shape[:-2] sums to 0 and the
         # old guard always took the full-read branch - which is an OOM on a
         # variable of any real size.  Bound it by the cell budget instead.
-        if vv.ndim >= 2 and int(np.prod(vv.shape)) > MAX_CELLS:
+        budget = memory_budget_cells()
+        if vv.ndim >= 2 and int(np.prod(vv.shape)) > budget:
+            # a colour range only needs a sample: 500 chunks is ~0.3 s,
+            # the 4000-chunk preview budget would add ~2 s to the first paint
             sy, sx = overview_stride(vv.shape[-2:], chunk_shape(vv),
-                                     max_cells=MAX_CELLS)
+                                     max_chunks=500, max_cells=budget)
             ss = [slice(0, 1)] * (vv.ndim - 2)
             ss += [slice(None, None, sy), slice(None, None, sx)]
             arr = set_miss(imiss, vv[tuple(ss)])
@@ -544,15 +602,28 @@ class MapPanel(TimeControlMixin, PlotPanel):
         """Image for separable projections, quad mesh otherwise."""
         separable = type(proj).__name__ in SEPARABLE
         if separable and xx.ndim == 1 and yy.ndim == 1:
-            xedges, yedges = cell_edges(xx), cell_edges(yy)
-            edges = proj.transform_points(
-                ccrs.PlateCarree(),
-                np.array([xedges[0], xedges[-1]]),
-                np.array([yedges[0], yedges[-1]]))
-            image = pg.ImageItem(vv)
-            image.setRect(QtCore.QRectF(
+            # transform the first/last cell CENTRES (always valid lon/lat) and
+            # extend half a cell in projected space: transforming the edges
+            # directly wraps -180.0008 to +179.999 and mirrors the image
+            centres = proj.transform_points(
+                ccrs.PlateCarree(), np.array([xx[0], xx[-1]], dtype=float),
+                np.array([yy[0], yy[-1]], dtype=float))
+            half_x = (centres[1, 0] - centres[0, 0]) / max(1, xx.size - 1) / 2
+            half_y = (centres[1, 1] - centres[0, 1]) / max(1, yy.size - 1) / 2
+            if xx.size == 1:
+                half_x = 0.5
+            if yy.size == 1:
+                half_y = 0.5
+            edges = np.array([[centres[0, 0] - half_x, centres[0, 1] - half_y],
+                              [centres[1, 0] + half_x, centres[1, 1] + half_y]])
+            # screen-resolution paint; levels up front so pyqtgraph doesn't
+            # auto-level-scan the whole chunk
+            image = pg.ImageItem(autoDownsample=True)
+            image.setImage(vv, levels=levels, autoLevels=False)
+            rect = QtCore.QRectF(
                 edges[0, 0], edges[0, 1],
-                edges[1, 0] - edges[0, 0], edges[1, 1] - edges[0, 1]))
+                edges[1, 0] - edges[0, 0], edges[1, 1] - edges[0, 1])
+            image.setRect(rect)
             image.setColorMap(cmap)
             image.setLevels(levels)
             self._add_overlay(image)
@@ -586,20 +657,47 @@ class MapPanel(TimeControlMixin, PlotPanel):
         proj_name = self.comboBox_projection.currentText()
         projection = self.iprojs[self.projs.index(proj_name)]
 
-        vv = xx = yy = None
-        vlab = ""
-        if v:
-            vv, vlab = self._variable_values(v, window=self._scroll_window(v))
-        if x:
-            xx = self._coordinate_values(
-                x, self.lond, window=self._coord_window(x, True))
-        if y:
-            yy = self._coordinate_values(
-                y, self.latd, window=self._coord_window(y, False))
-
-        self.ixxmean = self._central_longitude(xx)
+        transposed = self.checkBox_transVariable.isChecked()
+        curved = (projection.__name__ not in SEPARABLE
+                  or self._coord_ndim(x) == 2 or self._coord_ndim(y) == 2)
+        self.ixxmean = self._central_longitude(self._lon_extent(x))
         self.iclon = float(clon) if clon != "None" else self.ixxmean
         self.iproj = projection(central_longitude=self.iclon)
+        world = not self._keep_view and (
+            self.iiglobal or self._view_key != self.iproj.proj4_init)
+
+        vv = xx = yy = vrange = None
+        vlab = ""
+        self._patch = None
+        if v:
+            r, c = self.scroll.offsets()
+            window = self.scroll_window(
+                v, self.vd, offsets=(c, r) if transposed else (r, c))
+            if window:
+                # read only as finely as the screen shows the patch: at world
+                # view a 41M-cell patch covers ~34 px, i.e. ~187 cells/pixel
+                self._patch = self._patch_bounds(x, y, transposed)
+                view = (self._world_view() if world
+                        else self.item.vb.viewRange())
+                stride = (self._cells_per_pixel(self._patch, view)
+                          if self._patch else 1)
+                axes = sorted(window)
+                if curved:   # the quad mesh also stays under MESH_MAX_CELLS
+                    stride = max(stride, decimation_stride(
+                        [window[a][1] - window[a][0] for a in axes]))
+                self._read_stride = stride
+                for a in axes:
+                    start, stop, step = window[a]
+                    window[a] = (start, stop, max(step, stride))
+                self._zwindow = (window[axes[0]], window[axes[1]])
+            vv, vlab, vrange = self._variable_values(
+                v, window=window, native=not curved)
+        if x:
+            xx = self._coordinate_values(
+                x, self.lond, window=self.coord_window(x, True, transposed))
+        if y:
+            yy = self._coordinate_values(
+                y, self.latd, window=self.coord_window(y, False, transposed))
 
         if vv is not None:
             if vv.ndim < 2:
@@ -611,20 +709,31 @@ class MapPanel(TimeControlMixin, PlotPanel):
             if yy is None:
                 ny = vv.shape[0]
                 yy = -90.0 + (np.arange(ny) + 0.5) / float(ny) * 180.0
-            self._plot_variable(xx, yy, vv, vmin, vmax, vlab)
+            self._plot_variable(xx, yy, vv, vmin, vmax, vlab, vrange)
 
         self._draw_features(self.iproj)
         if self.checkBox_coast.isChecked() or self.checkBox_grid.isChecked():
             self._draw_graticule(
                 self.iproj, labels=self.checkBox_coast.isChecked())
-        if self.iiglobal:
+        if world:
+            # the world: on first draw, a new projection or central longitude
+            # (the coordinates change), or when 'global' is ticked. Scrolling
+            # and switching variables leave the user's view alone.
             self.item.setRange(
                 xRange=self.iproj.x_limits, yRange=self.iproj.y_limits,
                 padding=0)
-        else:
-            self.item.vb.autoRange(padding=0.02)
+        if self.data_item is not None:
+            self._view_key = self.iproj.proj4_init
+        if self._zwindow is not None:
+            # thumbs = the loaded patch's position and size in the variable
+            (r0, r1, _s), (c0, c1, _t) = self._zwindow
+            full = self._full_shape
+            if transposed:
+                (r0, r1), (c0, c1), full = (c0, c1), (r0, r1), full[::-1]
+            self.scroll.show_view(r0, c0, r1 - r0, c1 - c0, *full)
+        self._loaded_bars = self.scroll.offsets()
 
-    def _plot_variable(self, xx, yy, vv, vmin, vmax, vlab):
+    def _plot_variable(self, xx, yy, vv, vmin, vmax, vlab, vrange=None):
         if self.checkBox_invLongitude.isChecked():
             xx = np.flip(xx, axis=-1)
         if self.checkBox_invLatitude.isChecked():
@@ -638,22 +747,19 @@ class MapPanel(TimeControlMixin, PlotPanel):
         self._cyclic = self.iiglobal and spans_globe(xx)
         if self._cyclic:
             vv, xx, yy = add_cyclic(vv, x=xx, y=yy)
-        if vmin is not None:
-            vv = np.maximum(vv, vmin)
-        if vmax is not None:
-            vv = np.minimum(vv, vmax)
+        # no clamping: the colour levels already saturate out-of-range values
 
-        stride = decimation_stride(vv.shape, self.checkBox_fullRes.isChecked())
+        image = (type(self.iproj).__name__ in SEPARABLE
+                 and xx.ndim == 1 and yy.ndim == 1)
+        stride = 1 if image else decimation_stride(vv.shape)
+        self._mesh_stride = stride
         if stride > 1:
             vv = vv[::stride, ::stride]
             xx = xx[..., ::stride] if xx.ndim > 1 else xx[::stride]
             yy = yy[::stride] if yy.ndim == 1 else yy[::stride, ::stride]
 
-        finite = vv[np.isfinite(vv)]
-        levels = (
-            vmin if vmin is not None else (finite.min() if finite.size else 0.0),
-            vmax if vmax is not None else (finite.max() if finite.size else 1.0),
-        )
+        levels = (color_levels(vv, vmin, vmax) if vrange is None
+                  else native_levels(vv, vrange, vmin, vmax))
         cmap = self.selected_cmap_object(self.comboBox_cmap,
                                          self.checkBox_revCmap)
         try:
@@ -669,23 +775,32 @@ class MapPanel(TimeControlMixin, PlotPanel):
         if not self._colorbar_added:
             self.colorbar.setImageItem(self.data_item, insert_in=self.item)
             self._colorbar_added = True
+        self._native_levels = None
+        if vrange is not None and isinstance(self.data_item, pg.ImageItem):
+            # after the colorbar link, which pushes its own colour table:
+            # missing cells (dtype minimum) get the transparent entry
+            set_no_data_colors(self.data_item, cmap, *levels)
+            self._native_levels = levels
         self.ixx, self.iyy, self.ivv = xx, yy, vv
 
-    def _variable_values(self, v, window=None):
+    def _variable_values(self, v, window=None, native=False):
+        """``(values, label, native_range)``; see ``PlotPanel.slice_miss``."""
         gz, vz = vardim2var(v, self.groups)
         tname = self.tname if self.usex else self.tname[gz]
         if vz == tname:
             values, label = self.time_values(gz, decimal=True), "Year"
+            native = False
         else:
             values = selvar(self, vz)
             label = set_axis_label(values)
-        values = np.asarray(
-            self.slice_miss(self.vd, values, window=window), dtype=float)
+        out = self.slice_miss(self.vd, values, window=window, native=native)
+        values, native_range = (out if isinstance(out, tuple)
+                                else (np.asarray(out, dtype=float), None))
         if self.checkBox_transVariable.isChecked():
             values = values.T
         if self.checkBox_shiftLongitude.isChecked() and values.ndim > 1:
             values = np.roll(values, values.shape[1] // 2, axis=1)
-        return values, label
+        return values, label, native_range
 
     def _coordinate_values(self, vardim, dim_controls, window=None):
         group, name = vardim2var(vardim, self.groups)
@@ -694,6 +809,26 @@ class MapPanel(TimeControlMixin, PlotPanel):
                   else selvar(self, name))
         return np.asarray(
             self.slice_miss(dim_controls, values, window=window), dtype=float)
+
+    def _lon_extent(self, vardim):
+        """First and last longitude of the whole coordinate variable.
+
+        Two values, read directly - and independent of the loaded chunk, so
+        scrolling never shifts the projection's central longitude (which is
+        what used to re-centre the map on every scroll).
+        """
+        if not vardim:
+            return None
+        try:
+            _group, _name, var = resolve_selected_variable(self, vardim)
+            if var.ndim == 1:
+                return np.asarray(var[::max(1, var.shape[0] - 1)], dtype=float)
+            if var.ndim == 2:
+                return np.asarray(var[0, ::max(1, var.shape[1] - 1)],
+                                  dtype=float)
+        except Exception:
+            pass
+        return None
 
     def _central_longitude(self, xx):
         if xx is None or np.size(xx) == 0:
@@ -725,15 +860,26 @@ class MapPanel(TimeControlMixin, PlotPanel):
             if direction != self.anim_inc:
                 self._set_animation_direction(direction)
         self.set_tstep(it)
-        vv, _vlab = self._variable_values(v)
+        origin = ((self._zwindow[0][0], self._zwindow[1][0])
+                  if self._zwindow is not None else None)
+        window = self.scroll_window(v, self.vd, offsets=origin)
+        if window:
+            for a in window:
+                start, stop, step = window[a]
+                window[a] = (start, stop, max(step, self._read_stride))
+            axes = sorted(window)
+            self._zwindow = (window[axes[0]], window[axes[1]])
+        vv, _vlab, vrange = self._variable_values(
+            v, window=window, native=self._native_levels is not None)
+        if vrange is not None:
+            native_levels(vv, vrange, *self._native_levels)
         if vv.ndim < 2:
             self._stop_animation()
             return
         if self._cyclic:
             vv, _x, _y = add_cyclic(vv, x=self._base_xx, y=self._base_yy)
-        stride = decimation_stride(vv.shape, self.checkBox_fullRes.isChecked())
-        if stride > 1:
-            vv = vv[::stride, ::stride]
+        if self._mesh_stride > 1:
+            vv = vv[::self._mesh_stride, ::self._mesh_stride]
         self.ivv = vv
         if isinstance(self.data_item, pg.ImageItem):
             self.data_item.setImage(vv, autoLevels=False)

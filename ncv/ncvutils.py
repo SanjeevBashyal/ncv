@@ -512,6 +512,9 @@ def format_coord_contour(x, y, xx, yy, zz, xdate=False, ydate=False):
     else:
         xout, yout, zout = x, y, np.nan
 
+    if np.issubdtype(np.asarray(zz).dtype, np.signedinteger) and \
+            zout == np.iinfo(np.asarray(zz).dtype).min:
+        zout = np.nan                       # no-data sentinel of a native chunk
     xstr = datetime_str(xout) if xdate else f'{xout:.6g}'
     ystr = datetime_str(yout) if ydate else f'{yout:.6g}'
     return f'x={xstr}, y={ystr}, z={zout:.6g}'
@@ -547,14 +550,30 @@ def format_coord_map(x, y, proj, xx, yy, zz):
     if zz is None or zz.size == 0:
         return out
 
-    # nearest grid cell
-    gx, gy = (np.meshgrid(xx, yy) if (np.ndim(xx) == 1 and np.ndim(yy) == 1)
-              else (xx, yy))
-    if np.shape(gx) != np.shape(zz):
-        return out
-    idx = np.abs((((gx + 360.) % 360.) - ((lon + 360.) % 360.))**2 +
-                 (gy - lat)**2).argmin()
-    return f'{out}, z={np.asarray(zz).flat[idx]:.6g}'
+    # nearest grid cell - runs on every mouse move
+    zz = np.asarray(zz)
+    lon360 = (lon + 360.) % 360.
+    if np.ndim(xx) == 1 and np.ndim(yy) == 1:
+        # a separable grid: the nearest cell is the nearest column crossed
+        # with the nearest row. Searching the axes is O(nx + ny); the old
+        # meshgrid over a full-resolution patch (46M cells, ~740 MB) took 3 s
+        # per mouse move and hung the map while panning
+        if zz.shape != (np.size(yy), np.size(xx)):
+            return out
+        col = np.abs(((np.asarray(xx) + 360.) % 360.) - lon360).argmin()
+        row = np.abs(np.asarray(yy) - lat).argmin()
+        zout = zz[row, col]
+    else:
+        # curvilinear: only on the quad-mesh path, capped at 250k cells
+        if np.shape(xx) != zz.shape:
+            return out
+        idx = np.abs((((xx + 360.) % 360.) - lon360)**2 +
+                     (yy - lat)**2).argmin()
+        zout = zz.flat[idx]
+    if np.issubdtype(zz.dtype, np.signedinteger) and \
+            zout == np.iinfo(zz.dtype).min:
+        zout = np.nan                       # no-data sentinel of a native chunk
+    return f'{out}, z={zout:.6g}'
 
 
 def get_slice_values(dim_values, y, window=None):
@@ -922,9 +941,24 @@ def set_miss(miss, x):
         default = np.datetime64('NaT')
     else:
         default = np.nan
+    # One pass instead of one full-array np.where per value: NaN never
+    # compares equal so it is dropped, as are duplicates (_FillValue and
+    # missing_value are often the same number).
+    values = []
     for mm in miss:
-        x = np.where(x == mm, default, x)
-    return x
+        try:
+            if np.isnan(mm):
+                continue
+        except TypeError:
+            pass
+        if not any(mm == seen for seen in values):
+            values.append(mm)
+    if not values:
+        return x
+    mask = np.isin(np.asarray(x), values)
+    if not mask.any():
+        return x
+    return np.where(mask, default, x)
 
 
 def spinbox_values(ndim):

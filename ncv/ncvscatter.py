@@ -307,11 +307,11 @@ class ScatterPanel(PlotPanel):
         yy = yy2 = None
         ylabel = ylabel2 = ""
         if y:
-            yy, ylabel, self._ydate = self._series(y, self.yd)
+            yy, ylabel, self._ydate, _ = self._series(y, self.yd)
         if y2:
-            yy2, ylabel2, _y2date = self._series(y2, self.y2d)
+            yy2, ylabel2, _y2date, _ = self._series(y2, self.y2d)
         if x:
-            xx, xlabel, self._xdate = self._series(x, self.xd)
+            xx, xlabel, self._xdate, _ = self._series(x, self.xd)
         else:
             xx = np.arange((yy if y else yy2).shape[0], dtype=float)
             xlabel, self._xdate = "", False
