@@ -205,7 +205,6 @@ class MapPanel(TimeControlMixin, PlotPanel):
 
     def _build_ui(self):
         load_ui("map_panel", self)
-        self.connect_file_controls()
 
         self.plot = pg.PlotWidget()
         self.item = self.plot.plotItem
@@ -232,7 +231,7 @@ class MapPanel(TimeControlMixin, PlotPanel):
         self._loaded_bars = None
         self._keep_view = False
         self.plotLayout.addWidget(self.scroll, 1)
-        cursor_label(self.plot, self.plotLayout, self._format_cursor)
+        cursor_label(self.plot, self.label_cursor, self._format_cursor)
         self._mesh_stride = 1
         self._view_key = None
         self._native_levels = None
@@ -682,6 +681,10 @@ class MapPanel(TimeControlMixin, PlotPanel):
                 stride = (self._cells_per_pixel(self._patch, view)
                           if self._patch else 1)
                 axes = sorted(window)
+                # a patch smaller than a pixel would stride down to one row and
+                # squeeze to 1-D: keep >= 4 samples, so small grids read whole
+                spans = [window[a][1] - window[a][0] for a in axes]
+                stride = min(stride, max(1, min(spans) // 4))
                 if curved:   # the quad mesh also stays under MESH_MAX_CELLS
                     stride = max(stride, decimation_stride(
                         [window[a][1] - window[a][0] for a in axes]))

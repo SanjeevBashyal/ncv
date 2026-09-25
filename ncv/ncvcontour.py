@@ -22,7 +22,6 @@ class ContourPanel(PlotPanel):
 
     def _build_ui(self):
         load_ui("contour_panel", self)
-        self.connect_file_controls()
 
         self.plot = pg.PlotWidget()
         self.item = self.plot.plotItem
@@ -35,7 +34,7 @@ class ContourPanel(PlotPanel):
         self.init_view_sync()
         self._view_key = None
         self.plotLayout.addWidget(self.scroll, 1)
-        cursor_label(self.plot, self.plotLayout, self._format_cursor)
+        cursor_label(self.plot, self.label_cursor, self._format_cursor)
         self._xx = self._yy = self._zz = None
         self._xdate = self._ydate = False
 

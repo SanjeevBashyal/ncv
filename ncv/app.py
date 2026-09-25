@@ -13,7 +13,7 @@ from .ncvmatrix import MatrixPanel
 from .ncvscatter import ScatterPanel
 from .ncvutils import selvar, vardim2var
 from .qt_compat import QtGui, QtWidgets, require_qt
-from .session import NcvSession, normalize_files
+from .session import HAVE_XARRAY, NcvSession, normalize_files
 
 
 HAVE_CARTOPY = _ncvmap.HAVE_CARTOPY
@@ -50,6 +50,12 @@ class NcvMainWindow(QtWidgets.QMainWindow):
     def __init__(self, session: NcvSession, parent=None):
         super().__init__(parent)
         load_ui("main_window", self)
+        self.actionOpen_File.triggered.connect(
+            lambda: self.open_file_dialog(False))
+        self.actionOpen_xarray.triggered.connect(
+            lambda: self.open_file_dialog(True))
+        self.actionOpen_xarray.setVisible(HAVE_XARRAY)
+        self.actionNew_Window.triggered.connect(self.create_secondary_window)
         self.session = session
         self._children = []
 
