@@ -871,6 +871,16 @@
          </widget>
         </item>
         <item>
+         <widget class="QCheckBox" name="checkBox_fullCoarse">
+          <property name="toolTip">
+           <string>Show the whole variable at reduced resolution. Unticked, it loads at full resolution - all at once if it fits in memory, otherwise in chunks you move through with the scroll bars.</string>
+          </property>
+          <property name="text">
+           <string>full (coarse)</string>
+          </property>
+         </widget>
+        </item>
+        <item>
          <widget class="QCheckBox" name="checkBox_showCellIndices">
           <property name="toolTip">
            <string>Show cell indices instead of X and Y in the row and column headers</string>

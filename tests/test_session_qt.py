@@ -396,6 +396,15 @@ def make_matrix_panel(path, qt_app, *, fixed_time=False):
     session = NcvSession()
     session.open([str(path)])
 
+    window = _panel_window()
+    panel = MatrixPanel(window, session)
+    return panel, window, session
+
+
+def _panel_window():
+    """Stand-in for NcvMainWindow: panels only call these two methods."""
+    from ncv.qt_compat import QtWidgets
+
     class PanelWindow(QtWidgets.QWidget):
         def open_file_dialog(self, _use_xarray):
             pass
@@ -403,9 +412,7 @@ def make_matrix_panel(path, qt_app, *, fixed_time=False):
         def create_secondary_window(self):
             pass
 
-    window = PanelWindow()
-    panel = MatrixPanel(window, session)
-    return panel, window, session
+    return PanelWindow()
 
 
 def select_matrix_variable(panel, session, name):
@@ -686,14 +693,434 @@ def test_map_spans_globe():
     assert not spans_globe(np.array([11.0]))
 
 
-def test_map_decimation_stride():
-    from ncv.ncvmap import MAX_CELLS, decimation_stride
+def test_map_mesh_stride():
+    from ncv.ncvmap import MESH_MAX_CELLS, decimation_stride
 
+    # only the curved-projection quad mesh is capped; it costs ~3.5 us/cell
     assert decimation_stride((100, 100)) == 1
     stride = decimation_stride((1440, 720))
-    assert (1440 // stride) * (720 // stride) <= MAX_CELLS
-    assert decimation_stride((1440, 720), full_resolution=True) == 1
+    assert (1440 // stride) * (720 // stride) <= MESH_MAX_CELLS
 
+
+def test_memory_budget_and_read_modes(tmp_path, qt_app):
+    from ncv.ncvcommon import PlotPanel, memory_budget_cells
+    from ncv.session import NcvSession
+
+    budget = memory_budget_cells()
+    assert budget > 0
+    assert memory_budget_cells(fraction=0.5) > budget
+
+    path = tmp_path / "grid.nc"
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("y", 40)
+        ds.createDimension("x", 60)
+        ds.createVariable("v", "f8", ("y", "x"))[:] = 1.0
+    session = NcvSession()
+    session.open([str(path)])
+    window = _panel_window()
+    panel = PlotPanel(window, session, "t")
+    var = session.fi[0]["v"]
+
+    # fits in memory -> the whole slice, full resolution
+    window, shape, span, mode = panel.read_window(var, ["all", "all"])
+    assert mode == "full" and span == shape == (40, 60)
+    # coarse only when asked for
+    assert panel.read_window(var, ["all", "all"], coarse=True)[3] == "coarse"
+    # too big for the budget -> a full-resolution chunk at the offsets
+    import ncv.ncvcommon as common
+    real = common.memory_budget_cells
+    common.memory_budget_cells = lambda *a, **k: 100
+    try:
+        window, shape, span, mode = panel.read_window(
+            var, ["all", "all"], offsets=(20, 30))
+    finally:
+        common.memory_budget_cells = real
+    assert mode == "chunk" and span == (10, 10)
+    assert window == {0: (20, 30, 1), 1: (30, 40, 1)}
+    session.close()
+
+
+def test_matrix_chunk_headers_and_indices(tmp_path, qt_app):
+    import ncv.ncvcommon as common
+    from ncv.qt_compat import QtCore
+    from ncv.ncvmatrix import MatrixPanel
+    from ncv.session import NcvSession
+
+    path = tmp_path / "chunked.nc"
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("lat", 50)
+        ds.createDimension("lon", 80)
+        lat = ds.createVariable("lat", "f8", ("lat",))
+        lat.units = "degrees_north"
+        lat[:] = np.arange(50.0)
+        lon = ds.createVariable("lon", "f8", ("lon",))
+        lon.units = "degrees_east"
+        lon[:] = 100.0 + np.arange(80.0)
+        ds.createVariable("v", "f8", ("lat", "lon"))[:] = np.arange(4000.0).reshape(50, 80)
+
+    real = common.memory_budget_cells
+    common.memory_budget_cells = lambda *a, **k: 400        # 20 x 20 chunks
+    try:
+        session = NcvSession()
+        session.open([str(path)])
+        window = _panel_window()
+        panel = MatrixPanel(window, session)
+        vardim = next(c for c in session.cols if c.startswith("v "))
+        panel.comboBox_z.setCurrentText(vardim)
+        panel.scroll.hbar.setValue(30)
+        panel._refresh_table()
+        model = panel.model
+        horizontal = QtCore.Qt.Orientation.Horizontal
+        cols = model.col_index
+        # the loaded chunk covers the bar position (it is centred on it)
+        assert cols is not None and len(cols) == 20
+        assert cols[0] <= 30 <= cols[-1]
+        # headers are the chunk's slice of lon, not blank
+        assert model.xheaders is not None
+        assert np.allclose(model.xheaders, 100.0 + cols)
+        # cell indices are positions in the variable, not in the chunk
+        panel.checkBox_showCellIndices.setChecked(True)
+        assert model.headerData(0, horizontal) == str(cols[0])
+        assert model.headerData(19, horizontal) == str(cols[-1])
+        # values line up with those indices
+        assert float(model.values[0, 0]) == float(cols[0])
+        session.close()
+    finally:
+        common.memory_budget_cells = real
+
+
+def test_contour_bars_mirror_view_and_read_only_at_edges(tmp_path, qt_app):
+    import ncv.ncvcommon as common
+    from ncv.ncvcontour import ContourPanel
+    from ncv.session import NcvSession
+
+    path = tmp_path / "big.nc"
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("y", 200)
+        ds.createDimension("x", 300)
+        ds.createVariable("v", "f8", ("y", "x"))[:] = np.arange(60000.0).reshape(200, 300)
+
+    real = common.memory_budget_cells
+    common.memory_budget_cells = lambda *a, **k: 2500      # 50 x 50 chunks
+    try:
+        session = NcvSession()
+        session.open([str(path)])
+        panel = ContourPanel(_panel_window(), session)
+        panel.resize(800, 600)
+        panel.show()
+        qt_app.processEvents()
+        panel.checkBox_transposeZ.setChecked(True)          # show (y, x) as is
+        panel.comboBox_z.setCurrentText(
+            next(c for c in session.cols if c.startswith("v ")))
+        qt_app.processEvents()
+        reads = []
+        original = panel.redraw
+        panel.redraw = lambda *a, **k: (reads.append(1), original(*a, **k))
+
+        # thumbs = the displayed region within the whole variable
+        rows, cols = panel._view_cells()
+        assert panel.scroll.hbar.pageStep() == round(cols[1] - cols[0])
+        assert panel.scroll.vbar.pageStep() == round(rows[1] - rows[0])
+        assert panel.scroll.hbar.maximum() == 300 - panel.scroll.hbar.pageStep()
+
+        # a small move stays inside the chunk: the view pans, nothing is read
+        panel.scroll.hbar.setValue(panel.scroll.hbar.value() + 5)
+        qt_app.processEvents()
+        assert round(panel._view_cells()[1][0]) == panel.scroll.hbar.value()
+        panel._reload.stop()
+        assert reads == []
+
+        # past the edge: one read, and the new chunk covers the view
+        panel.scroll.hbar.setValue(250)
+        qt_app.processEvents()
+        assert panel._reload.isActive()
+        panel._reload_chunk()
+        _full, (_r0, _r1, c0, c1), *_ = panel._geom
+        assert len(reads) == 1 and c0 <= 250 < c1
+        session.close()
+    finally:
+        common.memory_budget_cells = real
+
+
+def test_slice_miss_uses_netcdf_mask_without_rescanning(tmp_path, monkeypatch, qt_app):
+    from ncv.ncvcommon import DimensionControlRow, PlotPanel
+    from ncv.session import NcvSession
+
+    path = tmp_path / "masked.nc"
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("x", 4)
+        var = ds.createVariable("v", "i2", ("x",), fill_value=-9999)
+        var[:] = np.ma.masked_equal([1, -9999, 3, 4], -9999)
+    session = NcvSession()
+    session.open([str(path)])
+    panel = PlotPanel(_panel_window(), session, "t")
+    dims = DimensionControlRow(1)
+    dims.set_count(1)
+    dims.selectors[0].addItems(["all"])
+    calls = []
+    monkeypatch.setattr(np, "isin", lambda *a, **k: calls.append(1))
+    out = panel.slice_miss(dims, session.fi[0]["v"])
+    assert np.isnan(out[1]) and out[0] == 1 and out[3] == 4
+    assert calls == []          # netCDF4 already masked the fill value
+    session.close()
+
+
+def test_native_integer_image_is_transparent_where_missing(qt_app):
+    import pyqtgraph as pg
+    from ncv.ncvcommon import native_levels, set_no_data_colors
+
+    sentinel = np.iinfo(np.int16).min
+    data = np.array([[2, 9, 16], [sentinel, 5, sentinel]], dtype=np.int16)
+    levels = native_levels(data, (2, 16))
+    assert levels == (2, 16)
+    image = pg.ImageItem()
+    image.setImage(data, autoLevels=False)
+    set_no_data_colors(image, pg.colormap.get("viridis"), *levels)
+    image.render()
+    qimage = image.qimage
+    alpha = lambda row, col: qimage.pixelColor(col, row).alpha()
+    assert alpha(1, 0) == 0 and alpha(1, 2) == 0            # missing: clear
+    assert alpha(0, 0) == alpha(0, 2) == alpha(1, 1) == 255   # valid: opaque
+    # the real minimum and maximum take the two ends of the colormap
+    ends = pg.colormap.get("viridis").getLookupTable(nPts=255, alpha=False)
+    low, high = qimage.pixelColor(0, 0), qimage.pixelColor(2, 0)
+    assert (low.red(), low.green(), low.blue()) == tuple(int(v) for v in ends[0])
+    assert (high.red(), high.green(), high.blue()) == tuple(int(v) for v in ends[-1])
+
+    # a user range above the data minimum raises valid cells, not the sentinel
+    clamped = data.copy()
+    native_levels(clamped, (2, 16), low=5)
+    assert clamped[0, 0] == 5 and clamped[1, 0] == sentinel
+
+
+def test_contour_keeps_integer_dtype(tmp_path, qt_app):
+    from ncv.ncvcontour import ContourPanel
+    from ncv.session import NcvSession
+
+    path = tmp_path / "ints.nc"
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("y", 20)
+        ds.createDimension("x", 30)
+        ints = ds.createVariable("classes", "i2", ("y", "x"), fill_value=-9999)
+        data = np.ma.masked_array(np.arange(600).reshape(20, 30) % 17 + 2,
+                                  mask=np.zeros((20, 30), bool))
+        data.mask[:5, :] = True
+        ints[:] = data
+        ds.createVariable("reals", "f8", ("y", "x"))[:] = 1.5
+    session = NcvSession()
+    session.open([str(path)])
+    panel = ContourPanel(_panel_window(), session)
+    panel.checkBox_transposeZ.setChecked(True)
+    pick = lambda name: next(c for c in session.cols if c.startswith(name + " "))
+
+    panel.comboBox_z.setCurrentText(pick("classes"))
+    assert panel._zz.dtype == np.int16                       # no float copy
+    assert tuple(panel.colorbar.levels()) == (2, 18)         # fill excluded
+    assert (panel._zz[:5] == np.iinfo(np.int16).min).all()   # masked rows
+    assert "nan" in panel._format_cursor(0.0, 1.0)           # no -32768 shown
+
+    panel.comboBox_z.setCurrentText(pick("reals"))
+    assert panel._zz.dtype == np.float64                     # float path as before
+    session.close()
+
+
+def test_matrix_keeps_integer_dtype(tmp_path, qt_app):
+    from ncv.qt_compat import QtCore
+    from ncv.ncvmatrix import MatrixPanel
+    from ncv.session import NcvSession
+
+    path = tmp_path / "ints.nc"
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("y", 4)
+        ds.createDimension("x", 5)
+        var = ds.createVariable("classes", "i2", ("y", "x"), fill_value=-9999)
+        data = np.ma.masked_array(np.arange(20).reshape(4, 5) + 3, mask=False)
+        data.mask = np.zeros((4, 5), bool)
+        data.mask[0, 0] = True
+        var[:] = data
+    session = NcvSession()
+    session.open([str(path)])
+    panel = MatrixPanel(_panel_window(), session)
+    panel.comboBox_z.setCurrentText(
+        next(c for c in session.cols if c.startswith("classes ")))
+    model = panel.model
+    display = QtCore.Qt.ItemDataRole.DisplayRole
+    assert model.values.dtype == np.int16                     # no float copy
+    assert model.data(model.index(0, 0), display) == ""       # missing cell
+    assert model.data(model.index(0, 1), display) != ""
+    # min/max exclude the missing cell (4 is the smallest valid value)
+    assert panel.lineEdit_min.text().startswith("4")
+    assert panel.lineEdit_max.text().startswith("22")
+    # changing the number format must not re-read the variable
+    panel.comboBox_dataFormat.setCurrentIndex(
+        (panel.comboBox_dataFormat.currentIndex() + 1)
+        % panel.comboBox_dataFormat.count())
+    assert panel.lineEdit_min.text().startswith("4")
+    session.close()
+
+
+def test_map_opens_global_and_mouse_never_reads(qt_app):
+    from ncv.ncvmap import HAVE_CARTOPY
+    if not HAVE_CARTOPY:
+        pytest.skip("cartopy unavailable")
+    import ncv.ncvcommon as common
+    import netCDF4 as ncdf
+    from ncv.ncvmap import MapPanel
+    from ncv.session import NcvSession
+    import tempfile, os
+
+    folder = tempfile.mkdtemp()
+    path = os.path.join(folder, "grid.nc")
+    with ncdf.Dataset(path, "w") as ds:
+        ds.createDimension("lat", 90)
+        ds.createDimension("lon", 180)
+        lat = ds.createVariable("lat", "f8", ("lat",))
+        lat.units = "degrees_north"
+        lat[:] = np.linspace(-89, 89, 90)
+        lon = ds.createVariable("lon", "f8", ("lon",))
+        lon.units = "degrees_east"
+        lon[:] = np.linspace(-179, 179, 180)
+        ds.createVariable("v", "f8", ("lat", "lon"))[:] = 1.0
+
+    real = common.memory_budget_cells
+    common.memory_budget_cells = lambda *a, **k: 400        # 20 x 20 chunks
+    try:
+        session = NcvSession()
+        session.open([path])
+        panel = MapPanel(_panel_window(), session)
+        panel.resize(900, 600)
+        panel.show()
+        qt_app.processEvents()
+        panel.comboBox_variable.setCurrentText(
+            next(c for c in session.cols if c.startswith("v ")))
+        qt_app.processEvents()
+        # opens at the world extent, with the patch drawn inside it
+        xr, _yr = panel.item.vb.viewRange()
+        assert xr[0] <= -170 and xr[1] >= 170
+        assert panel.scroll.hbar.pageStep() == 20        # thumb = the patch
+        reads = []
+        original = panel.redraw
+        panel.redraw = lambda *a, **k: (reads.append(1), original(*a, **k))
+        for _ in range(5):                                # mouse navigation
+            panel.item.vb.translateBy(x=10)
+            qt_app.processEvents()
+        assert reads == []
+        panel.scroll.hbar.setValue(100)                   # a bar move reads once
+        panel._scrolled()
+        assert len(reads) == 1
+        assert panel._zwindow[1][0] == 100
+        session.close()
+    finally:
+        common.memory_budget_cells = real
+
+
+def test_map_drag_reads_once_and_at_screen_resolution(tmp_path, qt_app):
+    from ncv.ncvmap import HAVE_CARTOPY
+    if not HAVE_CARTOPY:
+        pytest.skip("cartopy unavailable")
+    from PyQt6.QtTest import QTest
+    import ncv.ncvcommon as common
+    from ncv.ncvmap import MapPanel
+    from ncv.session import NcvSession
+
+    path = tmp_path / "fine.nc"
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("lat", 900)
+        ds.createDimension("lon", 1800)
+        lat = ds.createVariable("lat", "f8", ("lat",))
+        lat.units = "degrees_north"
+        lat[:] = np.linspace(-89.9, 89.9, 900)
+        lon = ds.createVariable("lon", "f8", ("lon",))
+        lon.units = "degrees_east"
+        lon[:] = np.linspace(-179.9, 179.9, 1800)
+        ds.createVariable("v", "i2", ("lat", "lon"))[:] = 7
+
+    real = common.memory_budget_cells
+    common.memory_budget_cells = lambda *a, **k: 250000     # 500 x 500 patch
+    try:
+        session = NcvSession()
+        session.open([str(path)])
+        panel = MapPanel(_panel_window(), session)
+        panel.resize(900, 600)
+        panel.show()
+        qt_app.processEvents()
+        panel.comboBox_variable.setCurrentText(
+            next(c for c in session.cols if c.startswith("v ")))
+        qt_app.processEvents()
+        # at world view the screen can't show every cell: read coarser
+        assert panel._read_stride > 1
+        assert panel.ivv.shape[1] < 500
+
+        reads = []
+        original = panel.redraw
+        panel.redraw = lambda *a, **k: (reads.append(1), original(*a, **k))
+        bar = panel.scroll.hbar
+        bar.setSliderDown(True)
+        for _ in range(10):                   # a held drag with pauses
+            bar.setSliderPosition(bar.value() + 50)
+            QTest.qWait(60)
+        assert reads == []                    # nothing read while dragging
+        bar.setSliderDown(False)              # emits sliderReleased
+        QTest.qWait(80)
+        assert len(reads) == 1                # one read, on release
+
+        # zoom right in: once settled, re-read at full resolution
+        box = panel.data_item.mapRectToView(panel.data_item.boundingRect())
+        panel.item.vb.setRange(
+            xRange=(box.center().x() - 0.5, box.center().x() + 0.5),
+            yRange=(box.center().y() - 0.5, box.center().y() + 0.5), padding=0)
+        QTest.qWait(350)
+        assert panel._read_stride == 1 and len(reads) == 2
+        session.close()
+    finally:
+        common.memory_budget_cells = real
+
+
+def test_map_cursor_is_fast_and_matches_brute_force():
+    import time
+    import cartopy.crs as ccrs
+    from ncv.ncvutils import format_coord_map
+
+    proj = ccrs.PlateCarree()
+    lon = np.linspace(-179.5, 179.5, 360)
+    lat = np.linspace(-89.5, 89.5, 180)
+    zz = np.arange(360 * 180, dtype=float).reshape(180, 360)
+    gx, gy = np.meshgrid(lon, lat)
+    rng = np.random.default_rng(0)
+    for x, y in list(rng.uniform((-180, -90), (180, 90), (200, 2))) + [(179.9, 0.0), (-179.9, 0.0)]:
+        brute = zz.flat[np.abs((((gx + 360.) % 360.) - ((x + 360.) % 360.))**2
+                               + (gy - y)**2).argmin()]
+        assert format_coord_map(x, y, proj, lon, lat, zz).endswith(f"z={brute:.6g}")
+
+    # a full-resolution patch must not stall the mouse
+    big = np.zeros((5000, 5000), dtype=np.int16)
+    t0 = time.perf_counter()
+    format_coord_map(1.0, 1.0, proj, np.linspace(0, 5, 5000),
+                     np.linspace(0, 5, 5000), big)
+    assert time.perf_counter() - t0 < 0.05
+
+
+def test_metadata_toggle_restores_width(qt_app):
+    from ncv.ncvmatrix import MatrixPanel
+    from ncv.session import NcvSession
+
+    window = _panel_window()
+    panel = MatrixPanel(window, NcvSession())
+    panel.resize(1000, 600)
+    panel.show()
+    qt_app.processEvents()
+    button = panel.pushButton_metadata
+    assert button.text().endswith("\u25b6")
+    button.setChecked(True)
+    qt_app.processEvents()
+    assert button.text().endswith("\u25bc")
+    panel._header_splitter.setSizes([600, 380])
+    qt_app.processEvents()
+    chosen = panel._header_splitter.sizes()
+    button.setChecked(False)
+    button.setChecked(True)
+    qt_app.processEvents()
+    assert panel._header_splitter.sizes() == chosen
 
 def test_cli_help_uses_ncv_entrypoint():
     result = subprocess.run(
