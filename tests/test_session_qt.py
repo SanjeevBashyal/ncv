@@ -611,6 +611,62 @@ def test_scatter_style_tables_cover_the_form_defaults():
     assert "None" not in PEN_STYLES and "None" not in SYMBOLS
 
 
+def test_overview_stride_respects_chunk_and_cell_budgets():
+    from ncv.ncvutils import overview_stride
+
+    # fits in memory -> read everything
+    assert overview_stride((90, 216), (600, 600)) == (1, 1)
+
+    # a stride below the chunk size costs a full read, so it must snap to a
+    # multiple of the chunk shape and keep touched chunks under budget
+    sy, sx = overview_stride((90001, 216001), (600, 600), max_chunks=4000)
+    assert sy % 600 == 0 and sx % 600 == 0
+    touched = -(-90001 // sy) * (-(-216001 // sx))
+    assert touched <= 4000
+    assert touched * 1.0 > 1000          # not needlessly coarse
+
+    # contiguous variables have no chunks; fall back to the cell budget
+    sy, sx = overview_stride((90001, 216001), None, max_cells=250000)
+    assert (-(-90001 // sy)) * (-(-216001 // sx)) <= 250000
+
+
+def test_get_slice_values_window_matches_direct_read(tmp_path):
+    from ncv.ncvutils import get_slice_values
+
+    path = tmp_path / "chunked.nc"
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("y", 40)
+        ds.createDimension("x", 60)
+        var = ds.createVariable("v", "f8", ("y", "x"), chunksizes=(10, 10))
+        var[:] = np.arange(40 * 60, dtype=float).reshape(40, 60)
+
+    with nc.Dataset(path) as ds:
+        var = ds["v"]
+        full = get_slice_values(["all", "all"], var)
+        windowed = get_slice_values(
+            ["all", "all"], var, window={0: (8, 24, 2), 1: (10, 50, 5)})
+        assert np.array_equal(windowed, np.asarray(full)[8:24:2, 10:50:5])
+        # and the window really is what was read
+        assert windowed.shape == (8, 8)
+
+
+def test_scrollable_view_bar_geometry(qt_app):
+    from PyQt6 import QtWidgets
+    from ncv.ncvcommon import ScrollableView
+
+    view = ScrollableView(QtWidgets.QWidget())
+    # whole variable loaded -> nothing to scroll
+    view.set_extent(100, 200, 100, 200)
+    assert not view.vbar.isEnabled() and not view.hbar.isEnabled()
+    # a window into a larger variable -> thumb shows the loaded fraction
+    view.set_extent(90001, 216001, 500, 500)
+    assert view.vbar.isEnabled() and view.vbar.maximum() == 89501
+    assert view.vbar.pageStep() == 500
+    assert view.hbar.maximum() == 215501
+    view.vbar.setValue(40000)
+    assert view.offsets() == (40000, 0)
+
+
 def test_metadata_html_formatting():
     from ncv.ncvmatrix import _metadata_html
 

@@ -14,6 +14,7 @@ from .dimensions import (
 from .ncvcommon import (
     DimensionControlRow,
     PlotPanel,
+    ScrollableView,
     TimeControlMixin,
     load_ui,
     set_combo_items,
@@ -145,6 +146,17 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
 
         self.model = _ArrayTableModel(self)
         self.tableView_showMatrix.setModel(self.model)
+        # runtime-only: the scroll bars live in a grid around the table, which
+        # Designer cannot express. Everything static (splitter, scroll-bar
+        # policies, hidden header, stretch, size policies) is in the .ui.
+        self._header_splitter = self.splitter_matrixAndHeader
+        self.scroll = ScrollableView(self.tableView_showMatrix)
+        self.scroll.windowChanged.connect(self._scrolled)
+        self._header_splitter.insertWidget(0, self.scroll)
+        self._header_splitter.setStretchFactor(0, 3)
+        self._header_splitter.setStretchFactor(1, 1)
+        self._header_splitter.setCollapsible(1, True)
+        self.pushButton_metadata.toggled.connect(self._toggle_metadata)
         self.zd = DimensionControlRow(self.maxdim)
         self.xd = DimensionControlRow(self.maxdim)
         self.yd = DimensionControlRow(self.maxdim)
@@ -179,9 +191,46 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
         self.pushButton_quit.clicked.connect(QtWidgets.QApplication.quit)
         self._update_model_options()
 
+    def _scroll_window(self, vardim):
+        """Window for the current scroll position, and size the bars to match."""
+        try:
+            _group, _name, variable = resolve_selected_variable(self, vardim)
+        except Exception:
+            return None
+        if getattr(variable, "ndim", 0) < 2:
+            self.scroll.set_extent(0, 0, 0, 0)
+            return None
+        values = self.zd.values()
+        values.extend(["0"] * max(0, variable.ndim - len(values)))
+        window, shape, span = self.read_window(
+            variable, values, self.scroll.offsets(), self._overview)
+        if shape is None:
+            self.scroll.set_extent(0, 0, 0, 0)
+            return None
+        self.scroll.set_extent(shape[0], shape[1], span[0], span[1])
+        return window
+
+    def _toggle_metadata(self, shown):
+        self.textBrowser_showHeader.setVisible(shown)
+        if shown:
+            width = max(self._header_splitter.width(), 1)
+            self._header_splitter.setSizes([int(width * 0.7), int(width * 0.3)])
+
+    def _scrolled(self):
+        if self._updating:
+            return
+        # dragging a bar means the user wants detail, not the coarse overview
+        self._overview = False
+        self._refresh_table(update_statistics=False)
+
+    def _toggle_overview(self, *_args):
+        if not self._updating:
+            self._refresh_table()
+
     def reinit(self):
         super().reinit()
         self._updating = True
+        self._overview = True
         columns = self.columns()
         for combo in (self.comboBox_z, self.comboBox_x, self.comboBox_y):
             set_combo_items(combo, columns, "")
@@ -221,6 +270,7 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
             self._set_statistics(None)
             self._show_dataset_metadata()
             return
+        self._overview = True
         self.zd.set_specs(dimension_specs(self, z, "var"))
         self.set_unlim(z)
         self.set_tstep(0)
@@ -287,7 +337,7 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
         self._refresh_table(
             update_statistics=not self.checkBox_allValues.isChecked())
 
-    def _selected_values(self, vardim, dimensions):
+    def _selected_values(self, vardim, dimensions, window=None):
         group, selected_name = vardim2var(vardim, self.groups)
         _group, _physical_name, variable = resolve_selected_variable(
             self, vardim)
@@ -299,7 +349,7 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
         else:
             values = dimensions.values()
             values.extend(["0"] * max(0, source.ndim - len(values)))
-            out = get_slice_values(values, source)
+            out = get_slice_values(values, source, window=window)
         if not synthetic_time:
             out = self._replace_missing(variable, out)
         return variable, np.asanyarray(out).squeeze()
@@ -330,8 +380,9 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
             self._set_statistics(None)
             self._show_dataset_metadata()
             return
+        window = self._scroll_window(z)
         try:
-            variable, raw = self._selected_values(z, self.zd)
+            variable, raw = self._selected_values(z, self.zd, window=window)
         except Exception as exc:
             self.model.set_table()
             self._show_variable_metadata(z, f"Unable to read selection: {exc}")

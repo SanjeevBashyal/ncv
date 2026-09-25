@@ -712,6 +712,130 @@
         </item>
         <item>
          <widget class="QComboBox" name="comboBox_projection">
+          <property name="currentIndex">
+           <number>18</number>
+          </property>
+          <item>
+           <property name="text">
+            <string>AlbersEqualArea</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>AzimuthalEquidistant</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>EckertI</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>EckertII</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>EckertIII</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>EckertIV</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>EckertV</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>EckertVI</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>EqualEarth</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>EquidistantConic</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>InterruptedGoodeHomolosine</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>LambertAzimuthalEqualArea</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>LambertConformal</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>LambertCylindrical</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Mercator</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Miller</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Mollweide</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>NorthPolarStereo</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>PlateCarree</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Robinson</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Sinusoidal</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>SouthPolarStereo</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Stereographic</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>TransverseMercator</string>
+           </property>
+          </item>
+
           <property name="toolTip">
            <string>Select the projection of the map</string>
           </property>
