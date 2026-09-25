@@ -32,47 +32,25 @@ without arguments so that files can be opened from the interface.
 - Python 3.9 or newer
 - A graphical desktop environment capable of running Qt applications
 
-The core installation includes:
+The installation includes everything needed for all four tabs:
 
+- Cartopy
 - netCDF4
 - NumPy
 - PyQt6
 - pyqtgraph
+- xarray
 
-The following components are optional:
+The only extra is `test`, which adds pytest for development and validation.
 
-| Extra | Adds |
-| --- | --- |
-| `map` | Cartopy and the fully functional Map tab |
-| `xarray` | The xarray file-reading path |
-| `full` | Both Cartopy and xarray |
-| `test` | pytest for development and validation |
-
-Without Cartopy, `ncv` still starts normally. The Map tab remains present and
-shows an explanation that mapping is unavailable. Without xarray, the normal
-NetCDF4 reader remains available and the **Open xarray** button is hidden.
+`ncv` still starts if Cartopy or xarray fail to import on a broken system. The
+Map tab remains present and explains that mapping is unavailable, and the
+**Open xarray** button is hidden.
 
 ## Installation
 
-### Install the complete application
-
-Installing the `full` extra enables both the Map tab and xarray support:
-
-```bash
-python3 -m pip install "ncv[full]"
-```
-
-For the smaller core installation:
-
 ```bash
 python3 -m pip install ncv
-```
-
-Individual optional features can be installed with:
-
-```bash
-python3 -m pip install "ncv[map]"
-python3 -m pip install "ncv[xarray]"
 ```
 
 Using a virtual environment is recommended:
@@ -81,7 +59,7 @@ Using a virtual environment is recommended:
 python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install --upgrade pip
-python3 -m pip install "ncv[full]"
+python3 -m pip install ncv
 ```
 
 ### Install as an isolated application with pipx
@@ -90,7 +68,7 @@ If `pipx` is available, it can keep the application separate from other
 Python environments:
 
 ```bash
-pipx install "ncv[full]"
+pipx install ncv
 pipx ensurepath
 ```
 
@@ -104,7 +82,7 @@ cd ncv
 python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install --upgrade pip
-python3 -m pip install ".[full]"
+python3 -m pip install .
 ```
 
 Use the source installation when you need changes that have not yet reached a
@@ -113,7 +91,7 @@ published package release.
 For an editable development installation with tests:
 
 ```bash
-python3 -m pip install -e ".[full,test]"
+python3 -m pip install -e ".[test]"
 ```
 
 ## Starting ncv
@@ -418,7 +396,7 @@ The main implementation modules are:
 Install the project in editable mode with all optional features and tests:
 
 ```bash
-python3 -m pip install -e ".[full,test]"
+python3 -m pip install -e ".[test]"
 ```
 
 Compile the Python modules and run the offscreen Qt test suite:

@@ -9,7 +9,9 @@ import numpy as np
 from .dimensions import dimension_values
 from .ncvmethods import get_miss
 from .ncvutils import (
+    chunk_shape,
     get_slice_values,
+    overview_stride,
     parse_entry,
     selvar,
     set_axis_label,
@@ -21,7 +23,10 @@ from .session import HAVE_XARRAY, NcvSession
 
 
 __all__ = [
+    "MAX_CELLS",
     "DimensionControlRow",
+    "ScrollableView",
+    "display_axes",
     "PlotPanel",
     "TimeControlMixin",
     "cursor_label",
@@ -32,6 +37,15 @@ __all__ = [
     "set_combo_items",
     "to_plot_values",
 ]
+
+
+# One read budget for every panel: how many cells may be held at once.
+MAX_CELLS = 4000000
+
+
+def display_axes(dim_values):
+    """Axis indices shown as a 2-D image, i.e. the ones set to ``all``."""
+    return [i for i, value in enumerate(dim_values) if str(value) == "all"]
 
 
 def resource_path(*parts: str) -> str:
@@ -109,6 +123,49 @@ def set_combo_items(combo, values, current=None):
     if current is not None and str(current) in items:
         combo.setCurrentText(str(current))
     combo.blockSignals(False)
+
+
+class ScrollableView(QtWidgets.QWidget):
+    """A view with scroll bars aligned to its own edges.
+
+    The bars sit in a grid beside and below the view, so their length always
+    matches the view extent.  Range is the full data size and page step is the
+    loaded span, so the thumb shows how much of the variable is in memory.
+    """
+
+    windowChanged = QtCore.pyqtSignal()
+
+    def __init__(self, view, parent=None):
+        super().__init__(parent)
+        grid = QtWidgets.QGridLayout(self)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(0)
+        self.view = view
+        self.vbar = QtWidgets.QScrollBar(QtCore.Qt.Orientation.Vertical)
+        self.hbar = QtWidgets.QScrollBar(QtCore.Qt.Orientation.Horizontal)
+        grid.addWidget(view, 0, 0)
+        grid.addWidget(self.vbar, 0, 1)
+        grid.addWidget(self.hbar, 1, 0)
+        grid.setRowStretch(0, 1)
+        grid.setColumnStretch(0, 1)
+        for bar in (self.vbar, self.hbar):
+            bar.valueChanged.connect(lambda _value: self.windowChanged.emit())
+        self.set_extent(0, 0, 0, 0)
+
+    def set_extent(self, nrows, ncols, row_span, col_span):
+        """Full data size and the span currently loaded from it."""
+        for bar, total, span in ((self.vbar, nrows, row_span),
+                                 (self.hbar, ncols, col_span)):
+            blocked = bar.blockSignals(True)
+            bar.setRange(0, max(0, int(total) - int(span)))
+            bar.setPageStep(max(1, int(span)))
+            bar.setSingleStep(max(1, int(span) // 10))
+            bar.setEnabled(total > span)
+            bar.blockSignals(blocked)
+
+    def offsets(self):
+        """Current (row, column) scroll offsets."""
+        return self.vbar.value(), self.hbar.value()
 
 
 class DimensionControlRow(QtWidgets.QWidget):
@@ -396,11 +453,12 @@ class PlotPanel(QtWidgets.QWidget):
             cmap.reverse()
         return cmap
 
-    def slice_miss(self, dim_controls: DimensionControlRow, variable):
+    def slice_miss(self, dim_controls: DimensionControlRow, variable,
+                   window=None):
         miss = get_miss(self, variable)
         values = dim_controls.values()
         values.extend(["0"] * max(0, variable.ndim - len(values)))
-        out = get_slice_values(values, variable)
+        out = get_slice_values(values, variable, window=window)
         if out.ndim > 1:
             out = out.squeeze()
         out = set_miss(miss, out)
@@ -410,7 +468,7 @@ class PlotPanel(QtWidgets.QWidget):
             out = np.array([np.nan])
         return out
 
-    def _series(self, vardim, dim_controls):
+    def _series(self, vardim, dim_controls, window=None):
         """Return (values, label, is_datetime) for one combo selection."""
         group, name = vardim2var(vardim, self.groups)
         tname = self.tname if self.usex else self.tname[group]
@@ -419,7 +477,8 @@ class PlotPanel(QtWidgets.QWidget):
         else:
             values = selvar(self, name)
             label = set_axis_label(values)
-        values, is_date = to_plot_values(self.slice_miss(dim_controls, values))
+        values, is_date = to_plot_values(
+            self.slice_miss(dim_controls, values, window=window))
         return values, label, is_date
 
     def _set_axis(self, axis, is_date):
@@ -429,6 +488,35 @@ class PlotPanel(QtWidgets.QWidget):
         self.item.setAxisItems({axis: (
             pg.DateAxisItem(orientation=axis) if is_date
             else pg.AxisItem(orientation=axis))})
+
+    def read_window(self, variable, dim_values, offsets=(0, 0), overview=True):
+        """Return ``(window, full_shape, span)`` for the two displayed axes.
+
+        ``window`` feeds ``get_slice_values``, so only the chosen region is
+        read from disk.  In overview mode the whole extent is read at a stride
+        chosen from the variable's chunking; otherwise a native-resolution
+        block of at most ``MAX_CELLS`` cells is read at ``offsets``.
+        """
+        axes = display_axes(dim_values)
+        if len(axes) != 2:
+            return None, None, None
+        shape = tuple(int(variable.shape[a]) for a in axes)
+        side = max(1, int(np.sqrt(MAX_CELLS)))
+        span = tuple(min(side, shape[i]) for i in range(2))
+        if overview:
+            stride = overview_stride(shape, chunk_shape(variable),
+                                     max_cells=MAX_CELLS)
+            window = {a: (0, shape[i], stride[i]) for i, a in enumerate(axes)}
+            if stride == (1, 1):
+                # the whole variable is loaded at native resolution, so there
+                # is nothing further to scroll to
+                span = shape
+        else:
+            window = {}
+            for i, axis in enumerate(axes):
+                start = min(max(int(offsets[i]), 0), shape[i] - span[i])
+                window[axis] = (start, start + span[i], 1)
+        return window, shape, span
 
     def reinit(self):
         self._copy_session()

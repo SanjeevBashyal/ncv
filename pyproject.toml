@@ -11,10 +11,12 @@ requires-python = ">=3.9"
 license = { text = "MIT" }
 
 dependencies = [
+  "cartopy",
   "netCDF4",
   "numpy",
   "PyQt6",
-  "pyqtgraph"
+  "pyqtgraph",
+  "xarray"
 ]
 
 authors = [
@@ -22,10 +24,7 @@ authors = [
 ]
 
 [project.optional-dependencies]
-xarray = ["xarray"]
-map = ["cartopy"]
 test = ["pytest"]
-full = ["xarray", "cartopy"]
 
 
 

@@ -10,10 +10,16 @@ import sys
 
 import numpy as np
 
-from .dimensions import dimension_specs, empty_dimension_specs
+from .dimensions import (
+    dimension_specs,
+    empty_dimension_specs,
+    resolve_selected_variable,
+)
 from .ncvcommon import (
     DimensionControlRow,
     PlotPanel,
+    MAX_CELLS,
+    ScrollableView,
     TimeControlMixin,
     cursor_label,
     float_or_none,
@@ -23,6 +29,8 @@ from .ncvcommon import (
 from .ncvmethods import get_miss
 from .ncvutils import (
     add_cyclic,
+    chunk_shape,
+    overview_stride,
     cell_edges,
     format_coord_map,
     selvar,
@@ -204,8 +212,12 @@ class MapPanel(TimeControlMixin, PlotPanel):
         self.item.hideAxis("left")
         self.colorbar = pg.ColorBarItem(interactive=False)
         self._colorbar_added = False
-        self.plotLayout.addWidget(self.plot, 1)
+        self.scroll = ScrollableView(self.plot)
+        self.scroll.windowChanged.connect(self._scrolled)
+        self.plotLayout.addWidget(self.scroll, 1)
         cursor_label(self.plot, self.plotLayout, self._format_cursor)
+        self._overview = True
+        self._vwindow = None
         self._overlays = []
         self.data_item = None
         self.iproj = None
@@ -222,19 +234,18 @@ class MapPanel(TimeControlMixin, PlotPanel):
         self.init_time_controls(self.comboBox_variable, self.vd)
         self.populate_cmap_combo(self.comboBox_cmap)
 
-        self.projs = ["AlbersEqualArea", "AzimuthalEquidistant", "EckertI",
-                      "EckertII", "EckertIII", "EckertIV", "EckertV",
-                      "EckertVI", "EqualEarth", "EquidistantConic",
-                      "InterruptedGoodeHomolosine",
-                      "LambertAzimuthalEqualArea", "LambertConformal",
-                      "LambertCylindrical", "Mercator", "Miller", "Mollweide",
-                      "NorthPolarStereo", "PlateCarree", "Robinson",
-                      "Sinusoidal", "SouthPolarStereo", "Stereographic",
-                      "TransverseMercator"]
+        # the projection list lives in the .ui so Designer previews it and it
+        # can be edited there; drop any name this cartopy build lacks
+        combo = self.comboBox_projection
+        wanted = [combo.itemText(i) for i in range(combo.count())]
+        self.projs = [name for name in wanted if hasattr(ccrs, name)]
         self.iprojs = [getattr(ccrs, name) for name in self.projs]
-        self.comboBox_projection.clear()
-        self.comboBox_projection.addItems(self.projs)
-        self.comboBox_projection.setCurrentText("PlateCarree")
+        if len(self.projs) != len(wanted):
+            current = combo.currentText()
+            combo.clear()
+            combo.addItems(self.projs)
+            combo.setCurrentText(
+                current if current in self.projs else "PlateCarree")
 
         self.comboBox_variable.currentIndexChanged.connect(self.selected_v)
         self.checkBox_transVariable.stateChanged.connect(self.checked)
@@ -307,6 +318,49 @@ class MapPanel(TimeControlMixin, PlotPanel):
 
     # ---------------------------------------------------------------- events
 
+    def _scrolled(self):
+        if not self._updating:
+            self._overview = False
+            self.redraw()
+
+    def _scroll_window(self, vardim):
+        """Window for the current scroll position; sizes the bars to match."""
+        try:
+            _group, _name, variable = resolve_selected_variable(self, vardim)
+        except Exception:
+            return None
+        if getattr(variable, "ndim", 0) < 2:
+            self.scroll.set_extent(0, 0, 0, 0)
+            self._vwindow = None
+            return None
+        values = self.vd.values()
+        values.extend(["0"] * max(0, variable.ndim - len(values)))
+        window, shape, span = self.read_window(
+            variable, values, self.scroll.offsets(), self._overview)
+        if shape is None:
+            self.scroll.set_extent(0, 0, 0, 0)
+            self._vwindow = None
+            return None
+        self.scroll.set_extent(shape[0], shape[1], span[0], span[1])
+        axes = sorted(window)
+        self._vwindow = (window[axes[0]], window[axes[1]])
+        return window
+
+    def _coord_window(self, vardim, is_lon):
+        """Same region/stride as the variable, for a 1-D or 2-D coordinate."""
+        if self._vwindow is None:
+            return None
+        rows_w, cols_w = self._vwindow
+        if self.checkBox_transVariable.isChecked():
+            rows_w, cols_w = cols_w, rows_w
+        try:
+            _group, _name, variable = resolve_selected_variable(self, vardim)
+        except Exception:
+            return None
+        if getattr(variable, "ndim", 0) == 1:
+            return {0: cols_w if is_lon else rows_w}
+        return {0: rows_w, 1: cols_w}
+
     def checked(self):
         if not self._updating:
             self.redraw()
@@ -362,6 +416,7 @@ class MapPanel(TimeControlMixin, PlotPanel):
             self._sync_time_controls()
             self.redraw()
             return
+        self._overview = True
         self.vd.set_specs(dimension_specs(self, v, "var"))
         self.set_unlim(v)
         self.set_tstep(0)
@@ -393,6 +448,16 @@ class MapPanel(TimeControlMixin, PlotPanel):
             return 0, 1
         vv = selvar(self, vz)
         imiss = get_miss(self, vv)
+        # A 2-D variable has no leading dims, so shape[:-2] sums to 0 and the
+        # old guard always took the full-read branch - which is an OOM on a
+        # variable of any real size.  Bound it by the cell budget instead.
+        if vv.ndim >= 2 and int(np.prod(vv.shape)) > MAX_CELLS:
+            sy, sx = overview_stride(vv.shape[-2:], chunk_shape(vv),
+                                     max_cells=MAX_CELLS)
+            ss = [slice(0, 1)] * (vv.ndim - 2)
+            ss += [slice(None, None, sy), slice(None, None, sx)]
+            arr = set_miss(imiss, vv[tuple(ss)])
+            return np.nanmin(arr), np.nanmax(arr)
         if self.checkBox_allValues.isChecked() or (np.sum(vv.shape[:-2]) < 50):
             arr = set_miss(imiss, vv)
             return np.nanmin(arr), np.nanmax(arr)
@@ -524,11 +589,13 @@ class MapPanel(TimeControlMixin, PlotPanel):
         vv = xx = yy = None
         vlab = ""
         if v:
-            vv, vlab = self._variable_values(v)
+            vv, vlab = self._variable_values(v, window=self._scroll_window(v))
         if x:
-            xx = self._coordinate_values(x, self.lond)
+            xx = self._coordinate_values(
+                x, self.lond, window=self._coord_window(x, True))
         if y:
-            yy = self._coordinate_values(y, self.latd)
+            yy = self._coordinate_values(
+                y, self.latd, window=self._coord_window(y, False))
 
         self.ixxmean = self._central_longitude(xx)
         self.iclon = float(clon) if clon != "None" else self.ixxmean
@@ -604,7 +671,7 @@ class MapPanel(TimeControlMixin, PlotPanel):
             self._colorbar_added = True
         self.ixx, self.iyy, self.ivv = xx, yy, vv
 
-    def _variable_values(self, v):
+    def _variable_values(self, v, window=None):
         gz, vz = vardim2var(v, self.groups)
         tname = self.tname if self.usex else self.tname[gz]
         if vz == tname:
@@ -612,19 +679,21 @@ class MapPanel(TimeControlMixin, PlotPanel):
         else:
             values = selvar(self, vz)
             label = set_axis_label(values)
-        values = np.asarray(self.slice_miss(self.vd, values), dtype=float)
+        values = np.asarray(
+            self.slice_miss(self.vd, values, window=window), dtype=float)
         if self.checkBox_transVariable.isChecked():
             values = values.T
         if self.checkBox_shiftLongitude.isChecked() and values.ndim > 1:
             values = np.roll(values, values.shape[1] // 2, axis=1)
         return values, label
 
-    def _coordinate_values(self, vardim, dim_controls):
+    def _coordinate_values(self, vardim, dim_controls, window=None):
         group, name = vardim2var(vardim, self.groups)
         tname = self.tname if self.usex else self.tname[group]
         values = (self.time_values(group, decimal=True) if name == tname
                   else selvar(self, name))
-        return np.asarray(self.slice_miss(dim_controls, values), dtype=float)
+        return np.asarray(
+            self.slice_miss(dim_controls, values, window=window), dtype=float)
 
     def _central_longitude(self, xx):
         if xx is None or np.size(xx) == 0:

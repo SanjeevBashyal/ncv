@@ -3,8 +3,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from .dimensions import dimension_specs, empty_dimension_specs
-from .ncvcommon import DimensionControlRow, PlotPanel, cursor_label, load_ui
+from .dimensions import (
+    dimension_specs,
+    empty_dimension_specs,
+    resolve_selected_variable,
+)
+from .ncvcommon import DimensionControlRow, PlotPanel, ScrollableView
+from .ncvcommon import cursor_label, load_ui
 from .ncvcommon import parse_limits, set_combo_items
 from .ncvutils import cell_edges, format_coord_contour
 from .qt_compat import QtCore, QtWidgets, pg
@@ -28,9 +33,13 @@ class ContourPanel(PlotPanel):
         self.item.addItem(self.image)
         self.colorbar = pg.ColorBarItem(interactive=False)
         self.colorbar.setImageItem(self.image, insert_in=self.item)
-        self.plotLayout.addWidget(self.plot, 1)
+        self.scroll = ScrollableView(self.plot)
+        self.scroll.windowChanged.connect(self._scrolled)
+        self.plotLayout.addWidget(self.scroll, 1)
         cursor_label(self.plot, self.plotLayout, self._format_cursor)
+        self._overview = True
         self._xx = self._yy = self._zz = None
+        self._zwindow = None
         self._xdate = self._ydate = False
 
         self.zd = DimensionControlRow(self.maxdim)
@@ -117,11 +126,60 @@ class ContourPanel(PlotPanel):
         self.checkBox_invX.setChecked(False)
         self.checkBox_invY.setChecked(False)
         self._reset_z_limits()
+        self._overview = True
+        self._zwindow = None
         self.xd.set_specs(empty_dimension_specs(self.maxdim))
         self.yd.set_specs(empty_dimension_specs(self.maxdim))
         self.zd.set_specs(
             dimension_specs(self, self.comboBox_z.currentText(), "z"))
         self.redraw()
+
+    def _scrolled(self):
+        if not self._updating:
+            self._overview = False
+            self.redraw()
+
+    def _scroll_window(self, vardim):
+        """Window for the current scroll position; sizes the bars to match."""
+        try:
+            _group, _name, variable = resolve_selected_variable(self, vardim)
+        except Exception:
+            return None
+        if getattr(variable, "ndim", 0) < 2:
+            self.scroll.set_extent(0, 0, 0, 0)
+            return None
+        values = self.zd.values()
+        values.extend(["0"] * max(0, variable.ndim - len(values)))
+        window, shape, span = self.read_window(
+            variable, values, self.scroll.offsets(), self._overview)
+        if shape is None:
+            self.scroll.set_extent(0, 0, 0, 0)
+            return None
+        self.scroll.set_extent(shape[0], shape[1], span[0], span[1])
+        axes = sorted(window)
+        self._zwindow = (window[axes[0]], window[axes[1]])
+        return window
+
+    def _axis_windows(self):
+        """z's (row, column) windows, accounting for the transpose above."""
+        if self._zwindow is None:
+            return None, None
+        rows_w, cols_w = self._zwindow
+        if not self.checkBox_transposeZ.isChecked():
+            rows_w, cols_w = cols_w, rows_w   # zz was transposed
+        return rows_w, cols_w
+
+    def _coord_window(self, vardim, rows_w, cols_w, is_x):
+        """Same region/stride as z, for a 1-D or 2-D coordinate variable."""
+        if rows_w is None:
+            return None
+        try:
+            _group, _name, variable = resolve_selected_variable(self, vardim)
+        except Exception:
+            return None
+        if getattr(variable, "ndim", 0) == 1:
+            return {0: cols_w if is_x else rows_w}
+        return {0: rows_w, 1: cols_w}
 
     def redraw(self):
         z = self.comboBox_z.currentText()
@@ -134,19 +192,23 @@ class ContourPanel(PlotPanel):
             self._zz = None
             return
 
-        zz, zlabel, _zdate = self._series(z, self.zd)
+        zz, zlabel, _zdate = self._series(z, self.zd,
+                                          window=self._scroll_window(z))
         if not self.checkBox_transposeZ.isChecked():
             zz = zz.T
         if zz.ndim < 2:
             print(f"Contour: z ({z}) is not 2-dimensional:", zz.shape)
             return
 
+        rows_w, cols_w = self._axis_windows()
         if x:
-            xx, xlabel, self._xdate = self._series(x, self.xd)
+            xx, xlabel, self._xdate = self._series(
+                x, self.xd, window=self._coord_window(x, rows_w, cols_w, True))
         else:
             xx, xlabel, self._xdate = np.arange(zz.shape[1], dtype=float), "", False
         if y:
-            yy, ylabel, self._ydate = self._series(y, self.yd)
+            yy, ylabel, self._ydate = self._series(
+                y, self.yd, window=self._coord_window(y, rows_w, cols_w, False))
         else:
             yy, ylabel, self._ydate = np.arange(zz.shape[0], dtype=float), "", False
 

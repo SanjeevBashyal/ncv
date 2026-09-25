@@ -81,9 +81,9 @@ except ModuleNotFoundError:
 
 __all__ = ['DIMMETHODS',
            'add_cyclic', 'has_cyclic',
-           'cell_edges', 'datetime_str',
+           'cell_edges', 'chunk_shape', 'datetime_str',
            'format_coord_contour', 'format_coord_map',
-           'get_slice', 'get_slice_values', 'get_standard_name', 'get_units',
+           'get_slice', 'get_slice_values', 'get_standard_name', 'get_units', 'overview_stride',
            'list_intersection', 'parse_entry',
            'selvar', 'set_axis_label', 'set_miss',
            'spinbox_values', 'vardim2var',
@@ -426,6 +426,50 @@ def datetime_str(value):
     return str(np.datetime64(int(value), 's')).replace('T', ' ')
 
 
+def chunk_shape(var):
+    """Chunk shape of a netCDF4 variable's last two axes, or None if contiguous."""
+    chunking = getattr(var, "chunking", None)
+    if chunking is None:
+        return None
+    try:
+        chunks = chunking()
+    except Exception:
+        return None
+    if not chunks or chunks == "contiguous":
+        return None
+    return tuple(int(c) for c in chunks[-2:])
+
+
+def overview_stride(shape, chunks=None, max_chunks=4000, max_cells=250000):
+    """Stride for a coarse full-extent preview of a 2-D region.
+
+    netCDF4 costs one chunk decompression per chunk touched, so a stride
+    smaller than the chunk shape is as slow as reading the whole variable.
+    Snap the stride to a multiple of the chunk shape and raise that multiple
+    until the touched-chunk count fits the budget, then honour the cell budget.
+
+    ponytail: samples one point per visited chunk. Sub-sampling n x n points
+    from each visited chunk is ~34x richer for the same time (measured on a
+    90001x216001 variable), but the samples then cluster inside visited chunks
+    with gaps between them, so they no longer sit on a uniform grid -- placing
+    them correctly needs real coordinates and PColorMeshItem instead of an
+    evenly spaced image. Do that only if the coarse preview proves too blunt.
+    """
+    ny, nx = int(shape[0]), int(shape[1])
+    if ny * nx <= max_cells:
+        return 1, 1
+    sy = sx = 1
+    if chunks:
+        cy, cx = max(1, int(chunks[0])), max(1, int(chunks[1]))
+        total = -(-ny // cy) * (-(-nx // cx))
+        k = max(1, int(np.ceil(np.sqrt(total / float(max_chunks)))))
+        sy, sx = cy * k, cx * k
+    while (-(-ny // sy)) * (-(-nx // sx)) > max_cells:
+        sy *= 2
+        sx *= 2
+    return sy, sx
+
+
 def cell_edges(centers):
     """Return ``n + 1`` cell edges for ``n`` cell centers."""
     centers = np.asarray(centers, dtype=float)
@@ -513,7 +557,7 @@ def format_coord_map(x, y, proj, xx, yy, zz):
     return f'{out}, z={np.asarray(zz).flat[idx]:.6g}'
 
 
-def get_slice_values(dim_values, y):
+def get_slice_values(dim_values, y, window=None):
     """
     Get slice of variable `y` from dimension selector values.
 
@@ -551,6 +595,10 @@ def get_slice_values(dim_values, y):
         dim = str(dim_values[i])
         if dim in methods:
             s = slice(0, y.shape[i])
+            if window and i in window:
+                # read only this region, at this stride, straight from disk
+                start, stop, step = window[i]
+                s = slice(int(start), min(int(stop), y.shape[i]), int(step))
         else:
             idim = int(dim)
             s = slice(idim, idim + 1)
