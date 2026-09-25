@@ -12,53 +12,6 @@
   </property>
   <layout class="QVBoxLayout" name="mainLayout">
    <item>
-    <layout class="QHBoxLayout" name="horizontalLayout_fileControls">
-     <item>
-      <widget class="QPushButton" name="pushButton_openFile">
-       <property name="toolTip">
-        <string>Open new NetCDF file(s)</string>
-       </property>
-       <property name="text">
-        <string>Open File</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="pushButton_openXarray">
-       <property name="toolTip">
-        <string>Open new NetCDF file(s) with xarray</string>
-       </property>
-       <property name="text">
-        <string>Open xarray</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="pushButton_newWindow">
-       <property name="toolTip">
-        <string>Open a secondary ncv window</string>
-       </property>
-       <property name="text">
-        <string>New Window</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <spacer name="horizontalSpacer_fileControls">
-       <property name="orientation">
-        <enum>Qt::Horizontal</enum>
-       </property>
-       <property name="sizeHint" stdset="0">
-        <size>
-         <width>40</width>
-         <height>20</height>
-        </size>
-       </property>
-      </spacer>
-     </item>
-    </layout>
-   </item>
-   <item>
     <widget class="QWidget" name="widget_plotHost" native="true">
      <property name="sizePolicy">
       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
@@ -87,6 +40,33 @@
       </property>
      </layout>
     </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayout_status">
+     <item>
+      <widget class="QLabel" name="label_cursor">
+       <property name="toolTip">
+        <string>Value under the mouse</string>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="horizontalSpacer_status">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+    </layout>
    </item>
    <item>
     <widget class="QGroupBox" name="groupBox_inputs">
@@ -124,7 +104,7 @@
            <string>Choose the plotted variable</string>
           </property>
           <property name="sizeAdjustPolicy">
-           <enum>QComboBox::AdjustToContents</enum>
+           <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
           </property>
          </widget>
         </item>
@@ -141,7 +121,7 @@
         <item>
          <spacer name="horizontalSpacer_zControls">
           <property name="orientation">
-           <enum>Qt::Horizontal</enum>
+           <enum>Qt::Orientation::Horizontal</enum>
           </property>
           <property name="sizeHint" stdset="0">
            <size>
@@ -218,7 +198,7 @@
            <string>Choose the x-axis variable. Empty uses the index.</string>
           </property>
           <property name="sizeAdjustPolicy">
-           <enum>QComboBox::AdjustToContents</enum>
+           <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
           </property>
          </widget>
         </item>
@@ -235,7 +215,7 @@
         <item>
          <spacer name="horizontalSpacer_x">
           <property name="orientation">
-           <enum>Qt::Horizontal</enum>
+           <enum>Qt::Orientation::Horizontal</enum>
           </property>
           <property name="sizeHint" stdset="0">
            <size>
@@ -295,7 +275,7 @@
            <string>Choose the y-axis variable. Empty uses the index.</string>
           </property>
           <property name="sizeAdjustPolicy">
-           <enum>QComboBox::AdjustToContents</enum>
+           <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
           </property>
          </widget>
         </item>
@@ -312,10 +292,10 @@
         <item>
          <spacer name="horizontalSpacer_y">
           <property name="orientation">
-           <enum>Qt::Horizontal</enum>
+           <enum>Qt::Orientation::Horizontal</enum>
           </property>
           <property name="sizeType">
-           <enum>QSizePolicy::Fixed</enum>
+           <enum>QSizePolicy::Policy::Fixed</enum>
           </property>
           <property name="sizeHint" stdset="0">
            <size>
@@ -387,7 +367,7 @@
            <string>Choose the colormap</string>
           </property>
           <property name="sizeAdjustPolicy">
-           <enum>QComboBox::AdjustToContents</enum>
+           <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
           </property>
          </widget>
         </item>
@@ -424,7 +404,7 @@
         <item>
          <spacer name="optionsSpacer">
           <property name="orientation">
-           <enum>Qt::Horizontal</enum>
+           <enum>Qt::Orientation::Horizontal</enum>
           </property>
           <property name="sizeHint" stdset="0">
            <size>

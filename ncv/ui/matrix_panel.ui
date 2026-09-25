@@ -10,44 +10,51 @@
     <height>780</height>
    </rect>
   </property>
-  <layout class="QVBoxLayout" name="verticalLayout_3" stretch="0,1,0,0">
+  <layout class="QVBoxLayout" name="verticalLayout_3" stretch="1,0,0,0">
    <property name="spacing">
     <number>3</number>
    </property>
    <item>
-    <layout class="QHBoxLayout" name="horizontalLayout_fileControls">
+    <layout class="QHBoxLayout" name="horizontalLayout_matrixAndHeader">
+     <property name="topMargin">
+      <number>0</number>
+     </property>
      <item>
-      <widget class="QPushButton" name="pushButton_openFile">
+      <widget class="QSplitter" name="splitter_matrixAndHeader">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <widget class="QTableView" name="tableView_showMatrix">
+        <property name="verticalScrollBarPolicy">
+         <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
+        </property>
+        <property name="horizontalScrollBarPolicy">
+         <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
+        </property>
+       </widget>
+       <widget class="QTextBrowser" name="textBrowser_showHeader">
+        <property name="visible">
+         <bool>false</bool>
+        </property>
+       </widget>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayout_status">
+     <item>
+      <widget class="QLabel" name="label_cursor">
        <property name="toolTip">
-        <string>Open new NetCDF file(s)</string>
+        <string>Value under the mouse</string>
        </property>
        <property name="text">
-        <string>Open File</string>
+        <string/>
        </property>
       </widget>
      </item>
      <item>
-      <widget class="QPushButton" name="pushButton_openXarray">
-       <property name="toolTip">
-        <string>Open new NetCDF file(s) with xarray</string>
-       </property>
-       <property name="text">
-        <string>Open xarray</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="pushButton_newWindow">
-       <property name="toolTip">
-        <string>Open a secondary ncv window</string>
-       </property>
-       <property name="text">
-        <string>New Window</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <spacer name="horizontalSpacer_fileControls">
+      <spacer name="horizontalSpacer_status">
        <property name="orientation">
         <enum>Qt::Orientation::Horizontal</enum>
        </property>
@@ -90,33 +97,6 @@
        <property name="text">
         <string/>
        </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="horizontalLayout_matrixAndHeader">
-     <property name="topMargin">
-      <number>0</number>
-     </property>
-     <item>
-      <widget class="QSplitter" name="splitter_matrixAndHeader">
-       <property name="orientation">
-        <enum>Qt::Orientation::Horizontal</enum>
-       </property>
-       <widget class="QTableView" name="tableView_showMatrix">
-        <property name="verticalScrollBarPolicy">
-         <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
-        </property>
-        <property name="horizontalScrollBarPolicy">
-         <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
-        </property>
-       </widget>
-       <widget class="QTextBrowser" name="textBrowser_showHeader">
-        <property name="visible">
-         <bool>false</bool>
-        </property>
-       </widget>
       </widget>
      </item>
     </layout>

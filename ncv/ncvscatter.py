@@ -62,7 +62,6 @@ class ScatterPanel(PlotPanel):
 
     def _build_ui(self):
         load_ui("scatter_panel", self)
-        self.connect_file_controls()
 
         self.plot = pg.PlotWidget()
         self.plot.showGrid(x=True, y=True, alpha=0.3)
@@ -76,7 +75,7 @@ class ScatterPanel(PlotPanel):
         self.item.vb.sigResized.connect(
             lambda: self.vb2.setGeometry(self.item.vb.sceneBoundingRect()))
         self.plotLayout.addWidget(self.plot, 1)
-        cursor_label(self.plot, self.plotLayout, self._format_cursor)
+        cursor_label(self.plot, self.label_cursor, self._format_cursor)
 
         self.xd = DimensionControlRow(self.maxdim)
         self.yd = DimensionControlRow(self.maxdim)

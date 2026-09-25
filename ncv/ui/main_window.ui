@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>NcvMainWindow</class>
- <widget class="QMainWindow" name="NcvMainWindow">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
   <property name="geometry">
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1000</width>
-    <height>800</height>
+    <width>1050</width>
+    <height>850</height>
    </rect>
   </property>
   <property name="windowTitle">
    <string>ncv</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <layout class="QVBoxLayout" name="centralLayout">
+   <layout class="QHBoxLayout" name="horizontalLayout">
     <property name="leftMargin">
      <number>0</number>
     </property>
@@ -29,6 +29,9 @@
     </property>
     <item>
      <widget class="QTabWidget" name="tabWidget_main">
+      <property name="focusPolicy">
+       <enum>Qt::FocusPolicy::TabFocus</enum>
+      </property>
       <property name="currentIndex">
        <number>0</number>
       </property>
@@ -56,6 +59,47 @@
     </item>
    </layout>
   </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>1050</width>
+     <height>23</height>
+    </rect>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">QMenuBar { background: #e4e4e4; border-bottom: 1px solid #b8b8b8; }
+QMenuBar::item { padding: 3px 10px; background: transparent; }
+QMenuBar::item:selected { background: #cfcfcf; }
+QMenuBar::item:pressed { background: #bdbdbd; }</string>
+   </property>
+   <widget class="QMenu" name="menuFile">
+    <property name="title">
+     <string>File</string>
+    </property>
+    <addaction name="actionOpen_File"/>
+    <addaction name="actionOpen_xarray"/>
+    <addaction name="separator"/>
+    <addaction name="actionNew_Window"/>
+   </widget>
+   <addaction name="menuFile"/>
+  </widget>
+  <action name="actionOpen_File">
+   <property name="text">
+    <string>Open File</string>
+   </property>
+  </action>
+  <action name="actionOpen_xarray">
+   <property name="text">
+    <string>Open xarray</string>
+   </property>
+  </action>
+  <action name="actionNew_Window">
+   <property name="text">
+    <string>New Window</string>
+   </property>
+  </action>
  </widget>
  <resources/>
  <connections/>

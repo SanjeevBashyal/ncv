@@ -157,7 +157,6 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
 
     def _build_ui(self):
         load_ui("matrix_panel", self)
-        self.connect_file_controls()
 
         self.model = _ArrayTableModel(self)
         self.tableView_showMatrix.setModel(self.model)
@@ -174,6 +173,10 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
         self._header_sizes = None
         self._native_range = None
         self.pushButton_metadata.toggled.connect(self._toggle_metadata)
+        table = self.tableView_showMatrix
+        table.setMouseTracking(True)            # needed for entered()
+        table.viewport().setMouseTracking(True)
+        table.entered.connect(self._hovered)
         self.checkBox_fullCoarse.stateChanged.connect(lambda *_: self.redraw())
         self.zd = DimensionControlRow(self.maxdim)
         self.xd = DimensionControlRow(self.maxdim)
@@ -222,7 +225,7 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
             self._header_sizes = splitter.sizes()
             self.textBrowser_showHeader.setVisible(False)
         self.pushButton_metadata.setText(
-            "Metadata: \u25bc" if shown else "Metadata: \u25b6")
+            "Metadata: \u25b2" if shown else "Metadata: \u25b6")
 
     def _visible_cells(self):
         """(rows, columns) the table viewport can show at once."""
@@ -268,6 +271,14 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
         table.verticalScrollBar().setValue(r - r0)
         table.horizontalScrollBar().setValue(c - c0)
         return True
+
+    def _hovered(self, index):
+        """Cell under the mouse, through the model so header format, flips
+        and cell indices all apply."""
+        model = self.model
+        x = model.headerData(index.column(), QtCore.Qt.Orientation.Horizontal)
+        y = model.headerData(index.row(), QtCore.Qt.Orientation.Vertical)
+        self.label_cursor.setText(f"x={x}, y={y}, z={model.data(index)}")
 
     def _scrolled(self):
         if self._updating:

@@ -22,7 +22,7 @@ from .ncvutils import (
     vardim2var,
 )
 from .qt_compat import QtCore, QtGui, QtWidgets, pg, uic
-from .session import HAVE_XARRAY, NcvSession
+from .session import NcvSession
 
 
 __all__ = [
@@ -142,10 +142,8 @@ def set_no_data_colors(image, cmap, low, high, entries=256):
     image.setLevels((low - step, high))
 
 
-def cursor_label(plot_widget, layout, formatter):
-    """Add a read-out label under ``plot_widget`` fed by mouse position."""
-    label = QtWidgets.QLabel("")
-    layout.addWidget(label)
+def cursor_label(plot_widget, label, formatter):
+    """Feed the form's ``label`` with the value under the mouse."""
     view = plot_widget.plotItem.vb
 
     def moved(pos):
@@ -524,16 +522,6 @@ class PlotPanel(QtWidgets.QWidget):
     def time_values(self, group, decimal=False):
         values = self.dtime if decimal else self.time
         return values if self.usex else values[group]
-
-    def connect_file_controls(self):
-        self.pushButton_openFile.clicked.connect(
-            lambda: self.window.open_file_dialog(False))
-        self.pushButton_openXarray.setVisible(HAVE_XARRAY)
-        if HAVE_XARRAY:
-            self.pushButton_openXarray.clicked.connect(
-                lambda: self.window.open_file_dialog(True))
-        self.pushButton_newWindow.clicked.connect(
-            self.window.create_secondary_window)
 
     def populate_cmap_combo(self, combo):
         combo.clear()

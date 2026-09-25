@@ -154,7 +154,7 @@ def test_qt_window_smoke_with_generated_netcdf(tmp_path):
     win = NcvMainWindow(session)
     temp = next(col for col in session.cols if col.startswith("temp "))
 
-    assert win.objectName() == "NcvMainWindow"
+    assert win.objectName() == "MainWindow"   # root name set in main_window.ui
     assert win.tabWidget_main.count() == 4
     assert win.tabWidget_main.widget(0) is win.scatter
     assert win.tabWidget_main.widget(1) is win.contour
@@ -590,6 +590,10 @@ def test_qt_designer_forms_load(qt_app):
         widget = base()
         uic.loadUi(str(ui_dir / form), widget)
         assert widget.children()
+        if form.endswith("_panel.ui") and form != "map_unavailable.ui":
+            # the read-out bar is static, so Designer shows it
+            assert widget.horizontalLayout_status is not None
+            assert widget.label_cursor is not None
 
 
 def test_to_plot_values_and_cell_edges():
@@ -998,6 +1002,7 @@ def test_map_opens_global_and_mouse_never_reads(qt_app):
         xr, _yr = panel.item.vb.viewRange()
         assert xr[0] <= -170 and xr[1] >= 170
         assert panel.scroll.hbar.pageStep() == 20        # thumb = the patch
+        assert panel.ivv.ndim == 2                        # tiny on screen, still drawn
         reads = []
         original = panel.redraw
         panel.redraw = lambda *a, **k: (reads.append(1), original(*a, **k))
@@ -1100,6 +1105,61 @@ def test_map_cursor_is_fast_and_matches_brute_force():
     assert time.perf_counter() - t0 < 0.05
 
 
+def test_file_menu_actions(tmp_path, qt_app):
+    from ncv.app import NcvMainWindow
+    from ncv.session import NcvSession
+
+    window = NcvMainWindow(NcvSession())
+    calls = []
+    window.open_file_dialog = lambda use_xarray: calls.append(use_xarray)
+    # the lambdas were connected before the patch; route through them
+    window.actionOpen_File.triggered.disconnect()
+    window.actionOpen_xarray.triggered.disconnect()
+    window.actionOpen_File.triggered.connect(lambda: window.open_file_dialog(False))
+    window.actionOpen_xarray.triggered.connect(lambda: window.open_file_dialog(True))
+    window.actionOpen_File.trigger()
+    window.actionOpen_xarray.trigger()
+    assert calls == [False, True]
+    before = len(NcvMainWindow.instances)
+    window.actionNew_Window.trigger()
+    assert len(NcvMainWindow.instances) == before + 1
+    for win in list(NcvMainWindow.instances):
+        win.close()
+
+
+def test_file_menu_is_wired_at_startup(qt_app, monkeypatch):
+    from ncv.app import NcvMainWindow
+    from ncv.session import NcvSession
+
+    calls = []
+    monkeypatch.setattr(NcvMainWindow, "open_file_dialog",
+                        lambda self, use_xarray: calls.append(use_xarray))
+    window = NcvMainWindow(NcvSession())
+    window.actionOpen_File.trigger()
+    window.actionOpen_xarray.trigger()
+    assert calls == [False, True]
+    window.close()
+
+
+def test_matrix_hover_readout(tmp_path, qt_app):
+    from ncv.ncvmatrix import MatrixPanel
+    from ncv.session import NcvSession
+
+    path = tmp_path / "small.nc"
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("y", 3)
+        ds.createDimension("x", 4)
+        ds.createVariable("v", "f8", ("y", "x"))[:] = np.arange(12.0).reshape(3, 4)
+    session = NcvSession()
+    session.open([str(path)])
+    panel = MatrixPanel(_panel_window(), session)
+    panel.comboBox_z.setCurrentText(next(c for c in session.cols if c.startswith("v ")))
+    panel.checkBox_showCellIndices.setChecked(True)
+    panel.tableView_showMatrix.entered.emit(panel.model.index(2, 3))
+    assert panel.label_cursor.text() == "x=3, y=2, z=11.0"
+    session.close()
+
+
 def test_metadata_toggle_restores_width(qt_app):
     from ncv.ncvmatrix import MatrixPanel
     from ncv.session import NcvSession
@@ -1113,7 +1173,7 @@ def test_metadata_toggle_restores_width(qt_app):
     assert button.text().endswith("\u25b6")
     button.setChecked(True)
     qt_app.processEvents()
-    assert button.text().endswith("\u25bc")
+    assert button.text().endswith("\u25b2")
     panel._header_splitter.setSizes([600, 380])
     qt_app.processEvents()
     chosen = panel._header_splitter.sizes()
