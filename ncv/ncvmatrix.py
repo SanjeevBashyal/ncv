@@ -227,50 +227,17 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
         self.pushButton_metadata.setText(
             "Metadata: \u25b2" if shown else "Metadata: \u25b6")
 
-    def _visible_cells(self):
-        """(rows, columns) the table viewport can show at once."""
-        table = self.tableView_showMatrix
-        rows = table.viewport().height() // max(1, table.verticalHeader().defaultSectionSize())
-        cols = table.viewport().width() // max(1, table.horizontalHeader().defaultSectionSize())
-        return max(1, rows), max(1, cols)
-
-    def _chunk_center(self):
-        """Cell (variable axis order) the next chunk is centred on: the middle
-        of what the table shows, so scrolling either way stays inside it."""
-        (r, c), (vr, vc) = self.scroll.offsets(), self._visible_cells()
-        center = (r + vr / 2.0, c + vc / 2.0)
-        return center[::-1] if self.checkBox_transVariable.isChecked() else center
-
     def _size_bars(self):
-        """Thumbs = the visible cells, positioned within the whole variable."""
-        if self._full_shape is None:
+        """Outer thumbs = the loaded chunk's position and size in the variable.
+        The table's own (inner) bars scroll within it."""
+        if self._full_shape is None or self._zwindow is None:
             self.scroll.set_extent(0, 0, 0, 0)
             return
+        (r0, r1, _s), (c0, c1, _t) = self._zwindow
         full = self._full_shape
         if self.checkBox_transVariable.isChecked():
-            full = full[::-1]
-        (r, c), (vr, vc) = self.scroll.offsets(), self._visible_cells()
-        self.scroll.show_view(r, c, vr, vc, *full)
-
-    def _show_offsets(self):
-        """Scroll the table so the bar position is its top-left cell.
-
-        Returns False when that region is not inside the loaded chunk.
-        """
-        if self._zwindow is None:
-            return False
-        (r, c), (vr, vc) = self.scroll.offsets(), self._visible_cells()
-        (r0, r1, sr), (c0, c1, sc) = self._zwindow
-        if self.checkBox_transVariable.isChecked():
-            (r0, r1, sr), (c0, c1, sc) = (c0, c1, sc), (r0, r1, sr)
-        if sr != 1 or sc != 1:
-            return True          # full or coarse: nothing further to load
-        if not (r0 <= r and r + vr <= r1 and c0 <= c and c + vc <= c1):
-            return False
-        table = self.tableView_showMatrix
-        table.verticalScrollBar().setValue(r - r0)
-        table.horizontalScrollBar().setValue(c - c0)
-        return True
+            (r0, r1), (c0, c1), full = (c0, c1), (r0, r1), full[::-1]
+        self.scroll.show_view(r0, c0, r1 - r0, c1 - c0, *full)
 
     def _hovered(self, index):
         """Cell under the mouse, through the model so header format, flips
@@ -281,10 +248,8 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
         self.label_cursor.setText(f"x={x}, y={y}, z={model.data(index)}")
 
     def _scrolled(self):
-        if self._updating:
-            return
-        # inside the loaded chunk: just move the table, no read at all
-        if not self._show_offsets():
+        # the outer bar picks the chunk; ScrollableView emits once per real move
+        if not self._updating:
             self._refresh_table(update_statistics=False)
 
     def reinit(self):
@@ -449,7 +414,10 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
             self._set_statistics(None)
             self._show_dataset_metadata()
             return
-        window = self.scroll_window(z, self.zd, center=self._chunk_center())
+        r, c = self.scroll.offsets()
+        window = self.scroll_window(
+            z, self.zd,
+            offsets=(c, r) if self.checkBox_transVariable.isChecked() else (r, c))
         try:
             variable, raw, native_range = self._selected_values(
                 z, self.zd, window=window, native=True)
@@ -495,7 +463,9 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
         self.model.set_table(array, xheaders, yheaders, row_index, col_index,
                              missing)
         self._size_bars()
-        self._show_offsets()
+        table = self.tableView_showMatrix          # a new chunk starts top-left
+        table.verticalScrollBar().setValue(0)
+        table.horizontalScrollBar().setValue(0)
         if update_statistics:
             self._refresh_statistics(raw, native_range)
         self._show_variable_metadata(z)
