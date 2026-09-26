@@ -223,14 +223,24 @@ class ScrollableView(QtWidgets.QWidget):
         self._settle = QtCore.QTimer(self)
         self._settle.setSingleShot(True)
         self._settle.setInterval(40)
-        self._settle.timeout.connect(self.windowChanged)
+        self._settle.timeout.connect(self._settled)
+        self._shown = None
         for bar in (self.vbar, self.hbar):
             bar.valueChanged.connect(self._value_changed)
+            bar.sliderReleased.connect(self._settle.start)
         self.set_extent(0, 0, 0, 0)
 
     def _value_changed(self, _value):
         self.moved.emit()
-        self._settle.start()
+        # a drag loads once, on release: loading at every pause *during* a
+        # drag queued second-long reads and froze the window
+        if not (self.vbar.isSliderDown() or self.hbar.isSliderDown()):
+            self._settle.start()
+
+    def _settled(self):
+        if self.offsets() != self._shown:     # only a real move reads
+            self._shown = self.offsets()
+            self.windowChanged.emit()
 
     def set_extent(self, nrows, ncols, row_span, col_span):
         """Full data size and the span shown, keeping the current position."""
@@ -254,6 +264,7 @@ class ScrollableView(QtWidgets.QWidget):
             bar.setValue(int(min(max(0, round(start)), max(0, total - span))))
             bar.setEnabled(total > span)
             bar.blockSignals(blocked)
+        self._shown = self.offsets()
 
     def offsets(self):
         """Current (row, column) scroll offsets."""

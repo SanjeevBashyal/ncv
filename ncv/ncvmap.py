@@ -218,8 +218,6 @@ class MapPanel(TimeControlMixin, PlotPanel):
         # pure navigation and never reads - a map is viewed at world scale,
         # where no chunk can contain the view
         self.scroll.windowChanged.connect(self._scrolled)
-        for bar in (self.scroll.vbar, self.scroll.hbar):
-            bar.sliderReleased.connect(self._scrolled)
         self._zoom_settle = QtCore.QTimer(self)
         self._zoom_settle.setSingleShot(True)
         self._zoom_settle.setInterval(200)
@@ -228,7 +226,6 @@ class MapPanel(TimeControlMixin, PlotPanel):
             lambda *_args: self._zoom_settle.start())
         self._read_stride = 1
         self._patch = None
-        self._loaded_bars = None
         self._keep_view = False
         self.plotLayout.addWidget(self.scroll, 1)
         cursor_label(self.plot, self.label_cursor, self._format_cursor)
@@ -336,14 +333,9 @@ class MapPanel(TimeControlMixin, PlotPanel):
     # ---------------------------------------------------------------- events
 
     def _scrolled(self):
-        # a drag loads once, on release: loading at every pause *during* a drag
-        # queued a dozen ~1 s reads and froze the window
-        bars = (self.scroll.vbar, self.scroll.hbar)
-        if (self._updating or self.data_item is None
-                or any(bar.isSliderDown() for bar in bars)
-                or self.scroll.offsets() == self._loaded_bars):
-            return
-        self.redraw()
+        # ScrollableView only emits on a real move, and once per drag
+        if not self._updating and self.data_item is not None:
+            self.redraw()
 
     def _cells_per_pixel(self, patch, view):
         """Read stride the screen can resolve: patch cells per screen pixel."""
@@ -734,7 +726,6 @@ class MapPanel(TimeControlMixin, PlotPanel):
             if transposed:
                 (r0, r1), (c0, c1), full = (c0, c1), (r0, r1), full[::-1]
             self.scroll.show_view(r0, c0, r1 - r0, c1 - c0, *full)
-        self._loaded_bars = self.scroll.offsets()
 
     def _plot_variable(self, xx, yy, vv, vmin, vmax, vlab, vrange=None):
         if self.checkBox_invLongitude.isChecked():

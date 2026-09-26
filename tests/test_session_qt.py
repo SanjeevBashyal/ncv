@@ -1141,6 +1141,66 @@ def test_file_menu_is_wired_at_startup(qt_app, monkeypatch):
     window.close()
 
 
+def test_matrix_outer_bar_picks_chunk_inner_slides_table(tmp_path, qt_app):
+    import ncv.ncvcommon as common
+    from PyQt6 import QtCore as QtC
+    from ncv.ncvmatrix import MatrixPanel
+    from ncv.session import NcvSession
+
+    path = tmp_path / "grid.nc"
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("y", 400)
+        ds.createDimension("x", 400)
+        ds.createVariable("v", "f8", ("y", "x"))[:] = np.arange(160000.0).reshape(400, 400)
+    real = common.memory_budget_cells
+    common.memory_budget_cells = lambda *a, **k: 10000       # 100 x 100 chunks
+    try:
+        session = NcvSession()
+        session.open([str(path)])
+        panel = MatrixPanel(_panel_window(), session)
+        panel.resize(900, 700)
+        panel.show()
+        qt_app.processEvents()
+        panel.comboBox_z.setCurrentText(next(c for c in session.cols if c.startswith("v ")))
+        qt_app.processEvents()
+        table = panel.tableView_showMatrix
+        assert table.verticalScrollBarPolicy() != QtC.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        reads = []
+        original = panel._refresh_table
+        panel._refresh_table = lambda *a, **k: (reads.append(1), original(*a, **k))
+        from PyQt6.QtTest import QTest
+        outer = panel.scroll.vbar
+        # outer thumb = the chunk (100 of 400 rows), inner range = the chunk
+        assert outer.pageStep() == 100 and outer.maximum() == 300
+        inner = table.verticalScrollBar()
+        assert inner.maximum() > 0
+
+        # inner: slides the table, leaves the outer bar and the chunk alone
+        inner.setValue(30)
+        QTest.qWait(60)
+        assert table.rowAt(0) == 30
+        assert outer.value() == 0 and reads == []
+
+        # outer: loads the chunk starting there, table back at its top
+        outer.setValue(150)
+        QTest.qWait(60)
+        assert len(reads) == 1 and panel._zwindow[0][0] == 150
+        assert inner.value() == 0
+
+        # a held outer drag reads nothing until release, then once
+        outer.setSliderDown(True)
+        for step in range(5):
+            outer.setSliderPosition(160 + 10 * step)
+            QTest.qWait(60)
+        assert len(reads) == 1
+        outer.setSliderDown(False)
+        QTest.qWait(60)
+        assert len(reads) == 2 and panel._zwindow[0][0] == 200
+        session.close()
+    finally:
+        common.memory_budget_cells = real
+
+
 def test_matrix_hover_readout(tmp_path, qt_app):
     from ncv.ncvmatrix import MatrixPanel
     from ncv.session import NcvSession
