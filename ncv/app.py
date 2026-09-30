@@ -5,6 +5,9 @@ import sys
 
 import numpy as np
 
+from .qt_compat import QtGui, QtWidgets, require_qt
+require_qt()
+
 from . import ncvmap as _ncvmap
 from .ncvcommon import load_ui, resource_path
 from .ncvcontour import ContourPanel
@@ -12,7 +15,6 @@ from .ncvmap import MapPanel, MapUnavailablePanel
 from .ncvmatrix import MatrixPanel
 from .ncvscatter import ScatterPanel
 from .ncvutils import selvar, vardim2var
-from .qt_compat import QtGui, QtWidgets, require_qt
 from .session import HAVE_XARRAY, NcvSession, normalize_files
 
 
@@ -181,7 +183,6 @@ class NcvMainWindow(QtWidgets.QMainWindow):
 
 def ncv(ncfile=None, miss=None, usex=False):
     """Launch the Qt ncv application."""
-    require_qt()
     if miss is None:
         miss = np.nan
     app = QtWidgets.QApplication.instance()

@@ -35,4 +35,12 @@ def require_qt() -> None:
             "    conda install -c conda-forge freetype harfbuzz",
             "    conda install -c conda-forge pyqt   # or take Qt from conda",
         ]
+    elif "cannot open shared object file" in str(QT_IMPORT_ERROR):
+        message += [
+            "",
+            "A system library Qt needs is missing on this machine (commonly on",
+            "HPC nodes). Install Qt with its own libraries from conda-forge:",
+            "    conda install -c conda-forge pyqt",
+            "or ask the administrators for the library named above.",
+        ]
     raise RuntimeError("\n".join(message)) from QT_IMPORT_ERROR

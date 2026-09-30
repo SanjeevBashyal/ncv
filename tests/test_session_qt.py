@@ -1242,6 +1242,33 @@ def test_metadata_toggle_restores_width(qt_app):
     qt_app.processEvents()
     assert panel._header_splitter.sizes() == chosen
 
+def test_broken_pyqt6_reports_the_real_reason():
+    # what an HPC node without Qt's system libraries does: PyQt6 won't load
+    code = """
+import builtins, sys
+real_import = builtins.__import__
+def blocked(name, *args, **kwargs):
+    if name.startswith("PyQt6"):
+        raise ImportError("libEGL.so.1: cannot open shared object file")
+    return real_import(name, *args, **kwargs)
+builtins.__import__ = blocked
+import ncv                              # the package itself stays importable
+try:
+    import ncv.app
+except RuntimeError as exc:
+    print("RUNTIME:", exc)
+except Exception as exc:
+    print("OTHER:", type(exc).__name__, exc)
+"""
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                            text=True, cwd=Path(__file__).parents[1])
+    out = result.stdout
+    assert "RUNTIME: ncv requires PyQt6" in out, out + result.stderr
+    assert "libEGL.so.1" in out                       # the real reason
+    assert "conda install -c conda-forge pyqt" in out
+    assert "NoneType" not in out
+
+
 def test_cli_help_uses_ncv_entrypoint():
     result = subprocess.run(
         [sys.executable, "-m", "ncv", "--help"],
