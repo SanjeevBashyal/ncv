@@ -62,6 +62,27 @@ python3 -m pip install --upgrade pip
 python3 -m pip install ncv
 ```
 
+### Install into a conda environment
+
+Install PyQt6 from conda-forge **before** ncv, so pip doesn't fetch the PyQt6
+wheel. That wheel's Qt libraries only search their own folder for system
+libraries, so in a conda environment they can mix the system's older FreeType
+with conda's newer HarfBuzz and fail with
+`undefined symbol: FT_Get_Colorline_Stops`.
+
+```bash
+conda install -c conda-forge pyqt6      # conda-forge "pyqt" is PyQt5
+python3 -m pip install ncv
+```
+
+If the wheel is already installed, swap it out (pip first, as both write to
+`site-packages/PyQt6`):
+
+```bash
+pip uninstall -y PyQt6 PyQt6-Qt6 PyQt6-sip
+conda install -c conda-forge pyqt6
+```
+
 ### Install as an isolated application with pipx
 
 If `pipx` is available, it can keep the application separate from other

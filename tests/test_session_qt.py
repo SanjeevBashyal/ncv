@@ -1242,14 +1242,21 @@ def test_metadata_toggle_restores_width(qt_app):
     qt_app.processEvents()
     assert panel._header_splitter.sizes() == chosen
 
-def test_broken_pyqt6_reports_the_real_reason():
-    # what an HPC node without Qt's system libraries does: PyQt6 won't load
+@pytest.mark.parametrize("error, reason, advice", [
+    # an HPC node without Qt's system libraries
+    ("libEGL.so.1: cannot open shared object file", "libEGL.so.1",
+     "conda install -c conda-forge pyqt6"),
+    # pip PyQt6 wheel + system FreeType 2.10 + conda HarfBuzz
+    ("libharfbuzz.so.0: undefined symbol: FT_Get_Colorline_Stops",
+     "FT_Get_Colorline_Stops", "LD_PRELOAD=$CONDA_PREFIX/lib/libfreetype.so.6"),
+])
+def test_broken_pyqt6_reports_the_real_reason(error, reason, advice):
     code = """
 import builtins, sys
 real_import = builtins.__import__
 def blocked(name, *args, **kwargs):
     if name.startswith("PyQt6"):
-        raise ImportError("libEGL.so.1: cannot open shared object file")
+        raise ImportError(%r)
     return real_import(name, *args, **kwargs)
 builtins.__import__ = blocked
 import ncv                              # the package itself stays importable
@@ -1259,13 +1266,15 @@ except RuntimeError as exc:
     print("RUNTIME:", exc)
 except Exception as exc:
     print("OTHER:", type(exc).__name__, exc)
-"""
+""" % error
     result = subprocess.run([sys.executable, "-c", code], capture_output=True,
                             text=True, cwd=Path(__file__).parents[1])
     out = result.stdout
     assert "RUNTIME: ncv requires PyQt6" in out, out + result.stderr
-    assert "libEGL.so.1" in out                       # the real reason
-    assert "conda install -c conda-forge pyqt" in out
+    assert reason in out                                # the real reason
+    assert advice in out
+    assert "pip uninstall -y PyQt6 PyQt6-Qt6 PyQt6-sip" in out
+    assert "conda-forge pyqt\n" not in out             # that one is PyQt5
     assert "NoneType" not in out
 
 
