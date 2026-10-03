@@ -712,7 +712,8 @@ def test_memory_budget_and_read_modes(tmp_path, qt_app):
 
     budget = memory_budget_cells()
     assert budget > 0
-    assert memory_budget_cells(fraction=0.5) > budget
+    # scales with memory below the cap
+    assert memory_budget_cells(fraction=0.002) > memory_budget_cells(fraction=0.001)
 
     path = tmp_path / "grid.nc"
     with nc.Dataset(path, "w") as ds:
@@ -1276,6 +1277,32 @@ except Exception as exc:
     assert "pip uninstall -y PyQt6 PyQt6-Qt6 PyQt6-sip" in out
     assert "conda-forge pyqt\n" not in out             # that one is PyQt5
     assert "NoneType" not in out
+
+
+def test_chunk_budget_is_capped_and_respects_cgroup(tmp_path, monkeypatch):
+    import ncv.ncvcommon as common
+
+    # plenty of memory: the interactivity cap decides
+    assert common.memory_budget_cells(fraction=1e9) == common.CHUNK_MAX_CELLS
+
+    # an HPC-style cgroup tree: the parent caps 2 GiB, 1 GiB already in use
+    gib = 1 << 30
+    leaf = tmp_path / "user.slice" / "user-1.slice"
+    leaf.mkdir(parents=True)
+    (tmp_path / "user.slice" / "memory.max").write_text(str(2 * gib))
+    (tmp_path / "user.slice" / "memory.current").write_text(str(gib))
+    (leaf / "memory.max").write_text("max")               # unlimited level
+    (leaf / "memory.current").write_text("123")
+    proc = tmp_path / "cgroup"
+    proc.write_text("0::/user.slice/user-1.slice\n")
+    assert common.cgroup_available(str(tmp_path), str(proc)) == gib
+
+    # nothing readable -> unknown, today's behaviour
+    assert common.cgroup_available(str(tmp_path), str(tmp_path / "nope")) is None
+
+    # the budget follows the cgroup room, not the node's MemAvailable
+    monkeypatch.setattr(common, "cgroup_available", lambda: gib)
+    assert common.memory_budget_cells() == int(gib * 0.2 / 32)
 
 
 def test_cli_help_uses_ncv_entrypoint():
