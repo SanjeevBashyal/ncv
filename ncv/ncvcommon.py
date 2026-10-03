@@ -35,6 +35,8 @@ __all__ = [
     "cursor_label",
     "float_or_none",
     "load_ui",
+    "CHUNK_MAX_CELLS",
+    "cgroup_available",
     "memory_budget_cells",
     "native_levels",
     "set_no_data_colors",
@@ -45,12 +47,48 @@ __all__ = [
 ]
 
 
+# Chunk size that keeps a switch under ~0.5 s (about 9 ns per cell measured on
+# Contour and Matrix). Beyond this, more memory only buys slower switches.
+CHUNK_MAX_CELLS = 36_000_000
+
+
+def cgroup_available(root="/sys/fs/cgroup", proc="/proc/self/cgroup"):
+    """Bytes left under this process's tightest cgroup v2 ``memory.max``.
+
+    HPC login nodes and batch jobs cap each user well below the node's RAM,
+    which is all ``/proc/meminfo`` reports.  None when unlimited or unknown.
+    """
+    try:
+        with open(proc) as cgroups:
+            path = next(line.split("::", 1)[1].strip()
+                        for line in cgroups if line.startswith("0::"))
+    except (OSError, StopIteration):
+        return None
+    left = None
+    folder = os.path.join(root, path.lstrip("/"))
+    while True:
+        try:
+            with open(os.path.join(folder, "memory.max")) as limit:
+                cap = limit.read().strip()
+            if cap != "max":
+                with open(os.path.join(folder, "memory.current")) as used:
+                    room = int(cap) - int(used.read())
+                left = room if left is None else min(left, room)
+        except (OSError, ValueError):
+            pass
+        if os.path.abspath(folder) == os.path.abspath(root):
+            return None if left is None else max(0, left)
+        folder = os.path.dirname(folder)
+
+
 def memory_budget_cells(fraction=0.2, bytes_per_cell=32):
-    """Cells that may be held at once: a fraction of currently available RAM.
+    """Cells that may be held at once: a fraction of currently available RAM,
+    capped at ``CHUNK_MAX_CELLS``.
 
     32 bytes per cell covers the float64 read, the clamp copy and pyqtgraph's
     RGBA image.  Linux reports MemAvailable, which counts reclaimable cache;
-    other POSIX systems fall back to free pages; anything else to 1 GB.
+    other POSIX systems fall back to free pages; anything else to 1 GB.  A
+    cgroup memory limit (HPC login node or job) lowers it further.
     """
     available = None
     try:
@@ -67,7 +105,11 @@ def memory_budget_cells(fraction=0.2, bytes_per_cell=32):
                          * os.sysconf("SC_PAGE_SIZE"))
         except (AttributeError, ValueError, OSError):
             available = 1 << 30
-    return max(1, int(available * fraction / bytes_per_cell))
+    limit = cgroup_available()
+    if limit is not None:
+        available = min(available, limit)
+    return max(1, min(CHUNK_MAX_CELLS,
+                      int(available * fraction / bytes_per_cell)))
 
 
 def display_axes(dim_values):
