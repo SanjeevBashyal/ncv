@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import os
+import threading
 import warnings
 from pathlib import Path
 
@@ -41,10 +42,54 @@ __all__ = [
     "native_levels",
     "set_no_data_colors",
     "parse_limits",
+    "read_responsive",
+    "reading",
     "resource_path",
     "set_combo_items",
     "to_plot_values",
 ]
+
+
+_READ_LOCK = threading.Lock()   # netCDF-C is not thread-safe: one read at a time
+_READING = 0
+
+
+def reading():
+    """True while ``read_responsive`` waits for a read: timers that would
+    start another redraw re-arm themselves instead."""
+    return _READING > 0
+
+
+def read_responsive(fn):
+    """Run a blocking read on a worker thread while the event loop keeps
+    painting and answering the window manager (netCDF4 releases the GIL), so
+    a slow disk never turns the window 'Not Responding'.  User input waits
+    until the read ends; the caller still gets the result synchronously.
+    """
+    global _READING
+    app = QtWidgets.QApplication.instance()
+    if app is None or QtCore.QThread.currentThread() is not app.thread():
+        return fn()
+    box, loop = {}, QtCore.QEventLoop()
+
+    def work():
+        try:
+            with _READ_LOCK:
+                box["out"] = fn()
+        except BaseException as exc:
+            box["exc"] = exc
+        QtCore.QMetaObject.invokeMethod(
+            loop, "quit", QtCore.Qt.ConnectionType.QueuedConnection)
+
+    _READING += 1
+    try:
+        threading.Thread(target=work, daemon=True).start()
+        loop.exec(QtCore.QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+    finally:
+        _READING -= 1
+    if "exc" in box:
+        raise box["exc"]
+    return box["out"]
 
 
 # Chunk size that keeps a switch under ~0.5 s (about 9 ns per cell measured on
@@ -184,16 +229,21 @@ def set_no_data_colors(image, cmap, low, high, entries=256):
     image.setLevels((low - step, high))
 
 
-def cursor_label(plot_widget, label, formatter):
-    """Feed the form's ``label`` with the value under the mouse."""
+def cursor_label(plot_widget, label, formatter, checkbox):
+    """Feed the form's ``label`` with the value under the mouse, only while
+    ``checkbox`` is ticked: each update repaints the label, which costs a
+    round trip on a forwarded X display."""
     view = plot_widget.plotItem.vb
 
     def moved(pos):
+        if not checkbox.isChecked():
+            return
         if plot_widget.plotItem.sceneBoundingRect().contains(pos):
             point = view.mapSceneToView(pos)
             label.setText(formatter(point.x(), point.y()))
 
     plot_widget.scene().sigMouseMoved.connect(moved)
+    checkbox.toggled.connect(lambda on: on or label.clear())
     return label
 
 
@@ -280,6 +330,9 @@ class ScrollableView(QtWidgets.QWidget):
             self._settle.start()
 
     def _settled(self):
+        if reading():                         # one read at a time
+            self._settle.start()
+            return
         if self.offsets() != self._shown:     # only a real move reads
             self._shown = self.offsets()
             self.windowChanged.emit()
@@ -380,7 +433,9 @@ class TimeControlMixin:
         self.anim_inc = 1
         self.timer = QtCore.QTimer(self)
         self.timer.setInterval(80)
-        self.timer.timeout.connect(lambda: self.update_frame(False))
+        # skip a frame while the previous one is still being read
+        self.timer.timeout.connect(
+            lambda: reading() or self.update_frame(False))
 
         self.horizontalSlider_timeStep.valueChanged.connect(self.tstep_t)
         self.pushButton_firstTime.clicked.connect(self.first_t)
@@ -602,7 +657,8 @@ class PlotPanel(QtWidgets.QWidget):
         miss = get_miss(self, variable)
         values = dim_controls.values()
         values.extend(["0"] * max(0, variable.ndim - len(values)))
-        out = get_slice_values(values, variable, window=window)
+        out = read_responsive(
+            lambda: get_slice_values(values, variable, window=window))
         if out.ndim > 1:
             out = out.squeeze()
         if native and np.issubdtype(out.dtype, np.signedinteger) and out.ndim == 2:
@@ -700,7 +756,7 @@ class PlotPanel(QtWidgets.QWidget):
                    if str(v) in DIMMETHODS]
         budget = max(1, budget // max(1, int(np.prod(reduced))))
         if coarse:
-            stride = overview_stride(shape, chunk_shape(variable),
+            stride = overview_stride(shape, chunk_shape(variable, axes),
                                      max_cells=budget)
             window = {a: (0, shape[i], stride[i]) for i, a in enumerate(axes)}
             return window, shape, shape, "coarse"
@@ -708,7 +764,19 @@ class PlotPanel(QtWidgets.QWidget):
             window = {a: (0, shape[i], 1) for i, a in enumerate(axes)}
             return window, shape, shape, "full"
         side = max(1, int(np.sqrt(budget)))
-        span = tuple(min(side, n) for n in shape)
+        span = [min(side, n) for n in shape]
+        chunks = chunk_shape(variable, axes)
+        if chunks:
+            for i in (0, 1):
+                # a touched chunk is read whole: when one is longer than the
+                # window, take all of it and fit the other axis to the budget,
+                # e.g. one-row chunks (1, nx) -> full-width strips of
+                # budget // nx rows instead of a square reading 36x its size
+                if min(chunks[i], shape[i]) > span[i]:
+                    span[i] = min(chunks[i], shape[i], budget)
+                    span[1 - i] = max(1, min(shape[1 - i], budget // span[i]))
+                    break
+        span = tuple(span)
         if center is not None:
             offsets = [int(center[i]) - span[i] // 2 for i in range(2)]
         window = {}
@@ -862,6 +930,12 @@ class PlotPanel(QtWidgets.QWidget):
         return center[::-1] if self._geom[-1] else center
 
     def _reload_chunk(self):
+        # a mouse drag reads once, on release (like the scroll bars), and
+        # never while another read is running
+        if reading() or (QtWidgets.QApplication.mouseButtons()
+                         != QtCore.Qt.MouseButton.NoButton):
+            self._reload.start()
+            return
         self._reload_center = self.view_center()
         self.redraw()
         self._reload_center = None

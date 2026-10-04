@@ -636,6 +636,13 @@ def test_overview_stride_respects_chunk_and_cell_budgets():
     assert touched <= 4000
     assert touched * 1.0 > 1000          # not needlessly coarse
 
+    # row chunks (1, nx): scaling x saves nothing, so the budget must come
+    # from y alone, and the whole-row chunk is sampled along x, not 1 column
+    sy, sx = overview_stride((84000, 216000), (1, 216000), max_chunks=500,
+                             max_cells=36_000_000)
+    assert -(-84000 // sy) <= 500
+    assert sx < 216000
+
     # contiguous variables have no chunks; fall back to the cell budget
     sy, sx = overview_stride((90001, 216001), None, max_cells=250000)
     assert (-(-90001 // sy)) * (-(-216001 // sx)) <= 250000
@@ -720,11 +727,13 @@ def test_memory_budget_and_read_modes(tmp_path, qt_app):
         ds.createDimension("y", 40)
         ds.createDimension("x", 60)
         ds.createVariable("v", "f8", ("y", "x"))[:] = 1.0
+        ds.createVariable("r", "f8", ("y", "x"), chunksizes=(1, 60))[:] = 1.0
     session = NcvSession()
     session.open([str(path)])
     window = _panel_window()
     panel = PlotPanel(window, session, "t")
     var = session.fi[0]["v"]
+    rows = session.fi[0]["r"]
 
     # fits in memory -> the whole slice, full resolution
     window, shape, span, mode = panel.read_window(var, ["all", "all"])
@@ -738,10 +747,14 @@ def test_memory_budget_and_read_modes(tmp_path, qt_app):
     try:
         window, shape, span, mode = panel.read_window(
             var, ["all", "all"], offsets=(20, 30))
+        # one-row chunks are read whole: full-width strip, not a square
+        strip = panel.read_window(rows, ["all", "all"], offsets=(20, 30))
     finally:
         common.memory_budget_cells = real
     assert mode == "chunk" and span == (10, 10)
     assert window == {0: (20, 30, 1), 1: (30, 40, 1)}
+    assert strip[3] == "chunk" and strip[2] == (1, 60)
+    assert strip[0] == {0: (20, 21, 1), 1: (0, 60, 1)}
     session.close()
 
 
@@ -1216,9 +1229,41 @@ def test_matrix_hover_readout(tmp_path, qt_app):
     panel = MatrixPanel(_panel_window(), session)
     panel.comboBox_z.setCurrentText(next(c for c in session.cols if c.startswith("v ")))
     panel.checkBox_showCellIndices.setChecked(True)
-    panel.tableView_showMatrix.entered.emit(panel.model.index(2, 3))
+    table = panel.tableView_showMatrix
+    # 'Cursor' unticked: no tracking, no read-out
+    assert not table.viewport().hasMouseTracking()
+    table.entered.emit(panel.model.index(2, 3))
+    assert panel.label_cursor.text() == ""
+    panel.checkBox_cursor.setChecked(True)
+    assert table.viewport().hasMouseTracking()
+    table.entered.emit(panel.model.index(2, 3))
     assert panel.label_cursor.text() == "x=3, y=2, z=11.0"
+    panel.checkBox_cursor.setChecked(False)
+    assert panel.label_cursor.text() == ""
     session.close()
+
+
+def test_read_responsive_runs_off_the_gui_thread(qt_app):
+    import threading
+    from ncv.ncvcommon import read_responsive, reading
+
+    seen = {}
+
+    def read():
+        seen["main"] = threading.current_thread() is threading.main_thread()
+        seen["busy"] = reading()
+        return 42
+
+    assert read_responsive(read) == 42
+    assert seen == {"main": False, "busy": True}
+    assert not reading()
+
+    def fail():
+        raise ValueError("bad read")
+
+    with pytest.raises(ValueError, match="bad read"):
+        read_responsive(fail)
+    assert not reading()
 
 
 def test_metadata_toggle_restores_width(qt_app):

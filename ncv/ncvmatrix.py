@@ -18,6 +18,7 @@ from .ncvcommon import (
     ScrollableView,
     TimeControlMixin,
     load_ui,
+    read_responsive,
     set_combo_items,
 )
 from .ncvmethods import get_miss
@@ -174,8 +175,12 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
         self._native_range = None
         self.pushButton_metadata.toggled.connect(self._toggle_metadata)
         table = self.tableView_showMatrix
-        table.setMouseTracking(True)            # needed for entered()
-        table.viewport().setMouseTracking(True)
+        # hover tracking (needed for entered()) only while 'Cursor' is ticked
+        for widget in (table, table.viewport()):
+            widget.setMouseTracking(False)
+            self.checkBox_cursor.toggled.connect(widget.setMouseTracking)
+        self.checkBox_cursor.toggled.connect(
+            lambda on: on or self.label_cursor.clear())
         table.entered.connect(self._hovered)
         self.checkBox_fullCoarse.stateChanged.connect(lambda *_: self.redraw())
         self.zd = DimensionControlRow(self.maxdim)
@@ -242,6 +247,8 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
     def _hovered(self, index):
         """Cell under the mouse, through the model so header format, flips
         and cell indices all apply."""
+        if not self.checkBox_cursor.isChecked():   # press-drag emits too
+            return
         model = self.model
         x = model.headerData(index.column(), QtCore.Qt.Orientation.Horizontal)
         y = model.headerData(index.row(), QtCore.Qt.Orientation.Vertical)
@@ -376,7 +383,8 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
         else:
             values = dimensions.values()
             values.extend(["0"] * max(0, source.ndim - len(values)))
-            out = get_slice_values(values, source, window=window)
+            out = read_responsive(
+                lambda: get_slice_values(values, source, window=window))
         if native and not synthetic_time:
             chunk = np.ma.asanyarray(out).squeeze()
             if np.issubdtype(chunk.dtype, np.signedinteger) and chunk.ndim == 2:

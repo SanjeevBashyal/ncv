@@ -27,6 +27,8 @@ from .ncvcommon import (
     float_or_none,
     load_ui,
     memory_budget_cells,
+    read_responsive,
+    reading,
     set_combo_items,
 )
 from .ncvmethods import get_miss
@@ -228,7 +230,8 @@ class MapPanel(TimeControlMixin, PlotPanel):
         self._patch = None
         self._keep_view = False
         self.plotLayout.addWidget(self.scroll, 1)
-        cursor_label(self.plot, self.label_cursor, self._format_cursor)
+        cursor_label(self.plot, self.label_cursor, self._format_cursor,
+                     self.checkBox_cursor)
         self._mesh_stride = 1
         self._view_key = None
         self._native_levels = None
@@ -394,6 +397,9 @@ class MapPanel(TimeControlMixin, PlotPanel):
         needs a resolution at least 2x different from what was read."""
         if self._updating or self.data_item is None or self._patch is None:
             return
+        if reading():                         # one read at a time
+            self._zoom_settle.start()
+            return
         need = self._cells_per_pixel(self._patch, self.item.vb.viewRange())
         if need * 2 <= self._read_stride or need >= 2 * self._read_stride:
             self._keep_view = True
@@ -499,13 +505,32 @@ class MapPanel(TimeControlMixin, PlotPanel):
         # variable of any real size.  Bound it by the cell budget instead.
         budget = memory_budget_cells()
         if vv.ndim >= 2 and int(np.prod(vv.shape)) > budget:
-            # a colour range only needs a sample: 500 chunks is ~0.3 s,
-            # the 4000-chunk preview budget would add ~2 s to the first paint
-            sy, sx = overview_stride(vv.shape[-2:], chunk_shape(vv),
-                                     max_chunks=500, max_cells=budget)
-            ss = [slice(0, 1)] * (vv.ndim - 2)
-            ss += [slice(None, None, sy), slice(None, None, sx)]
-            arr = set_miss(imiss, vv[tuple(ss)])
+            lead = [slice(0, 1)] * (vv.ndim - 2)
+            chunks = chunk_shape(vv)
+
+            def sample():
+                if chunks and 32 * chunks[0] * chunks[1] <= budget:
+                    # a colour range needs values, not a grid: read 32 whole
+                    # chunks spread over the variable. Each touched chunk
+                    # costs a seek (~60 ms on GPFS) and is read whole anyway.
+                    cy, cx = chunks
+                    ny, nx = vv.shape[-2:]
+                    gx = -(-nx // cx)
+                    picks = np.linspace(0, -(-ny // cy) * gx - 1, 32)
+                    parts = []
+                    for p in np.unique(picks.astype(int)):
+                        iy, ix = divmod(int(p), gx)
+                        ss = lead + [slice(iy * cy, (iy + 1) * cy),
+                                     slice(ix * cx, (ix + 1) * cx)]
+                        parts.append(
+                            np.ma.ravel(set_miss(imiss, vv[tuple(ss)])))
+                    return np.ma.concatenate(parts)
+                sy, sx = overview_stride(vv.shape[-2:], chunks,
+                                         max_chunks=500, max_cells=budget)
+                ss = lead + [slice(None, None, sy), slice(None, None, sx)]
+                return set_miss(imiss, vv[tuple(ss)])
+
+            arr = read_responsive(sample)
             return np.nanmin(arr), np.nanmax(arr)
         if self.checkBox_allValues.isChecked() or (np.sum(vv.shape[:-2]) < 50):
             arr = set_miss(imiss, vv)

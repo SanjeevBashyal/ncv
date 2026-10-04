@@ -9,7 +9,7 @@ from .qt_compat import QtGui, QtWidgets, require_qt
 require_qt()
 
 from . import ncvmap as _ncvmap
-from .ncvcommon import load_ui, resource_path
+from .ncvcommon import load_ui, reading, resource_path
 from .ncvcontour import ContourPanel
 from .ncvmap import MapPanel, MapUnavailablePanel
 from .ncvmatrix import MatrixPanel
@@ -172,6 +172,9 @@ class NcvMainWindow(QtWidgets.QMainWindow):
         child.show()
 
     def closeEvent(self, event):
+        if reading():           # never close the file under a running read
+            event.ignore()
+            return
         if self in NcvMainWindow.instances:
             NcvMainWindow.instances.remove(self)
         if not any(
