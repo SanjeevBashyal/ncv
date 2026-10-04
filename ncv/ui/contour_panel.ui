@@ -44,6 +44,19 @@
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout_status">
      <item>
+      <widget class="QCheckBox" name="checkBox_cursor">
+       <property name="toolTip">
+        <string>Show the value under the mouse</string>
+       </property>
+       <property name="text">
+        <string>Cursor</string>
+       </property>
+       <property name="checked">
+        <bool>false</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QLabel" name="label_cursor">
        <property name="toolTip">
         <string>Value under the mouse</string>

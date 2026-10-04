@@ -426,8 +426,9 @@ def datetime_str(value):
     return str(np.datetime64(int(value), 's')).replace('T', ' ')
 
 
-def chunk_shape(var):
-    """Chunk shape of a netCDF4 variable's last two axes, or None if contiguous."""
+def chunk_shape(var, axes=(-2, -1)):
+    """Chunk shape of a netCDF4 variable along ``axes`` (default: the last
+    two), or None if contiguous."""
     chunking = getattr(var, "chunking", None)
     if chunking is None:
         return None
@@ -437,7 +438,7 @@ def chunk_shape(var):
         return None
     if not chunks or chunks == "contiguous":
         return None
-    return tuple(int(c) for c in chunks[-2:])
+    return tuple(int(chunks[a]) for a in axes)
 
 
 def overview_stride(shape, chunks=None, max_chunks=4000, max_cells=250000):
@@ -454,6 +455,8 @@ def overview_stride(shape, chunks=None, max_chunks=4000, max_cells=250000):
     with gaps between them, so they no longer sit on a uniform grid -- placing
     them correctly needs real coordinates and PColorMeshItem instead of an
     evenly spaced image. Do that only if the coarse preview proves too blunt.
+    An axis held in a single chunk (e.g. row chunks ``(1, nx)``) is the
+    exception: it is read whole anyway, so it is sampled densely for free.
     """
     ny, nx = int(shape[0]), int(shape[1])
     if ny * nx <= max_cells:
@@ -461,9 +464,15 @@ def overview_stride(shape, chunks=None, max_chunks=4000, max_cells=250000):
     sy = sx = 1
     if chunks:
         cy, cx = max(1, int(chunks[0])), max(1, int(chunks[1]))
-        total = -(-ny // cy) * (-(-nx // cx))
-        k = max(1, int(np.ceil(np.sqrt(total / float(max_chunks)))))
-        sy, sx = cy * k, cx * k
+        gy, gx = -(-ny // cy), -(-nx // cx)   # chunk grid
+        k = max(1, int(np.ceil(np.sqrt(gy * gx / float(max_chunks)))))
+        # striding past an axis's last chunk saves nothing: push the rest of
+        # the reduction onto the other axis
+        ky, kx = min(k, gy), min(k, gx)
+        while -(-gy // ky) * (-(-gx // kx)) > max_chunks:
+            ky, kx = min(2 * ky, gy), min(2 * kx, gx)
+        sy = cy * ky if gy > 1 else 1
+        sx = cx * kx if gx > 1 else 1
     while (-(-ny // sy)) * (-(-nx // sx)) > max_cells:
         sy *= 2
         sx *= 2

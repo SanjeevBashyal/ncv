@@ -34,7 +34,8 @@ class ContourPanel(PlotPanel):
         self.init_view_sync()
         self._view_key = None
         self.plotLayout.addWidget(self.scroll, 1)
-        cursor_label(self.plot, self.label_cursor, self._format_cursor)
+        cursor_label(self.plot, self.label_cursor, self._format_cursor,
+                     self.checkBox_cursor)
         self._xx = self._yy = self._zz = None
         self._xdate = self._ydate = False
 

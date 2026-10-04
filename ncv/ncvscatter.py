@@ -75,7 +75,8 @@ class ScatterPanel(PlotPanel):
         self.item.vb.sigResized.connect(
             lambda: self.vb2.setGeometry(self.item.vb.sceneBoundingRect()))
         self.plotLayout.addWidget(self.plot, 1)
-        cursor_label(self.plot, self.label_cursor, self._format_cursor)
+        cursor_label(self.plot, self.label_cursor, self._format_cursor,
+                     self.checkBox_cursor)
 
         self.xd = DimensionControlRow(self.maxdim)
         self.yd = DimensionControlRow(self.maxdim)
