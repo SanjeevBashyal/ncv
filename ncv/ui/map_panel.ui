@@ -607,6 +607,16 @@
          </widget>
         </item>
         <item>
+         <widget class="QCheckBox" name="checkBox_boundingBox">
+          <property name="toolTip">
+           <string>Fit the view to the variable's whole longitude/latitude extent (like 'global', but for the data instead of the world).</string>
+          </property>
+          <property name="text">
+           <string>bbox</string>
+          </property>
+         </widget>
+        </item>
+        <item>
          <widget class="QCheckBox" name="checkBox_fullCoarse">
           <property name="toolTip">
            <string>Show the whole variable at reduced resolution. Unticked, it loads at full resolution - all at once if it fits in memory, otherwise in chunks you move through with the scroll bars.</string>

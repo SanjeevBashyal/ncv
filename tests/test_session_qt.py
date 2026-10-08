@@ -704,6 +704,135 @@ def test_map_spans_globe():
     assert not spans_globe(np.array([11.0]))
 
 
+def test_gl_usable_and_mesh_cap(qt_app, monkeypatch):
+    import ncv.ncvmap as nmap
+    import ncv.qt_compat as compat
+
+    monkeypatch.delenv("NCV_OPENGL", raising=False)
+    assert compat.gl_usable() is False              # offscreen: no GL viewport
+    assert nmap.mesh_max_cells() == nmap.MESH_MAX_CELLS_CPU
+    monkeypatch.setenv("NCV_OPENGL", "1")
+    assert compat.gl_usable() and nmap.mesh_max_cells() == nmap.MESH_MAX_CELLS
+    monkeypatch.setenv("NCV_OPENGL", "0")
+    assert compat.gl_usable() is False
+
+
+def _map_file(path, rotate):
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("y", 40)
+        ds.createDimension("x", 60)
+        r, c = np.mgrid[0:40, 0:60].astype(float)
+        lon = ds.createVariable("lon", "f8", ("y", "x"))
+        lon.units = "degrees_east"
+        lat = ds.createVariable("lat", "f8", ("y", "x"))
+        lat.units = "degrees_north"
+        # north-first rows, like most rasters; optionally sheared (curvilinear)
+        lon[:] = 80.0 + 0.1 * c + (0.05 * r if rotate else 0.0)
+        lat[:] = 30.0 - 0.1 * r + (0.03 * c if rotate else 0.0)
+        ds.createVariable("v", "i4", ("y", "x"))[:] = (r * 60 + c).astype(int)
+
+
+@pytest.mark.parametrize("rotate, item", [(False, "ImageItem"), (True, "PColorMeshItem")])
+def test_map_rectilinear_2d_coords_draw_as_image(tmp_path, qt_app, rotate, item):
+    from ncv.ncvmap import HAVE_CARTOPY
+    if not HAVE_CARTOPY:
+        pytest.skip("cartopy unavailable")
+    from ncv.ncvmap import MapPanel
+    from ncv.session import NcvSession
+
+    path = tmp_path / "grid.nc"
+    _map_file(path, rotate)
+    session = NcvSession()
+    session.open([str(path)])
+    panel = MapPanel(_panel_window(), session)
+    panel.resize(900, 600)
+    panel.show()
+    pick = lambda name: next(c for c in session.cols if c.startswith(name + " "))
+    panel.comboBox_longitude.setCurrentText(pick("lon"))
+    panel.comboBox_latitude.setCurrentText(pick("lat"))
+    panel.comboBox_variable.setCurrentText(pick("v"))
+    qt_app.processEvents()
+    assert type(panel.data_item).__name__ == item
+    # GL is only ever used for the mesh; never for an image
+    assert type(panel.plot.viewport()).__name__ == "QWidget"
+    if not rotate:
+        assert panel.ixx.ndim == 1 and panel.iyy.ndim == 1   # read as 1-D axes
+
+        # bbox: the view frames the variable (80-85.9 E, 26.1-30 N)
+        panel.checkBox_boundingBox.setChecked(True)
+        qt_app.processEvents()
+        import cartopy.crs as ccrs
+        (x0, x1), (y0, y1) = panel.item.vb.viewRange()
+        corners = panel.iproj.transform_points(
+            ccrs.PlateCarree(), np.array([80.0, 85.9]), np.array([26.1, 30.0]))
+        assert x0 <= corners[:, 0].min() and x1 >= corners[:, 0].max()
+        assert y0 <= corners[:, 1].min() and y1 >= corners[:, 1].max()
+        assert x1 - x0 < 30 and y1 - y0 < 30                # not the world
+    session.close()
+
+
+def test_map_curvilinear_cursor_is_fast_and_exact():
+    import time
+    import cartopy.crs as ccrs
+    from ncv.ncvutils import format_coord_map
+
+    n = 2000                                              # 4M cells
+    r, c = np.mgrid[0:n, 0:n].astype(float)
+    lon = 80 + c * 0.005 + 0.3 * np.sin(r / 200.0)
+    lat = 20 + r * 0.005 + 0.2 * np.sin(c / 250.0)
+    zz = np.arange(n * n, dtype=float).reshape(n, n)
+    proj = ccrs.PlateCarree()
+    rng = np.random.default_rng(1)
+    for x, y in rng.uniform((80.5, 20.5), (89.5, 29.5), (60, 2)):
+        brute = zz.flat[np.abs((((lon + 360) % 360) - ((x + 360) % 360))**2
+                               + (lat - y)**2).argmin()]
+        assert format_coord_map(x, y, proj, lon, lat, zz).endswith(f"z={brute:.6g}")
+    t0 = time.perf_counter()
+    format_coord_map(85.0, 25.0, proj, lon, lat, zz)
+    assert time.perf_counter() - t0 < 0.05
+
+
+def test_contour_shows_spatial_data_north_up_as_stored(tmp_path, qt_app):
+    from ncv.ncvcontour import ContourPanel
+    from ncv.session import NcvSession
+
+    path = tmp_path / "raster.nc"
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("time", None)
+        ds.createDimension("y", 4)
+        ds.createDimension("x", 6)
+        t = ds.createVariable("time", "f8", ("time",))
+        t.units = "days since 2000-01-01"
+        t[:] = [0.0, 1.0, 2.0]
+        y = ds.createVariable("y", "f8", ("y",))
+        y[:] = [30.0, 29.0, 28.0, 27.0]                     # north first
+        x = ds.createVariable("x", "f8", ("x",))
+        x[:] = 80.0 + np.arange(6.0)
+        ds.createVariable("elev", "f8", ("y", "x"))[:] = np.arange(24.0).reshape(4, 6)
+        ds.createVariable("series", "f8", ("time", "y"))[:] = np.arange(12.0).reshape(3, 4)
+    session = NcvSession()
+    session.open([str(path)])
+    panel = ContourPanel(_panel_window(), session)
+    pick = lambda name: next(c for c in session.cols if c.startswith(name + " "))
+
+    panel.comboBox_z.setCurrentText(pick("elev"))
+    assert not panel.checkBox_transposeZ.isChecked()        # shown as stored
+    assert panel._zz.shape == (4, 6)
+    assert list(panel._yy) == [30.0, 29.0, 28.0, 27.0]      # CF coordinate used
+    assert list(panel._xx) == list(80.0 + np.arange(6.0))
+    rect = panel.image.mapRectToView(panel.image.boundingRect())
+    assert rect.top() < rect.bottom() and panel.image.height() == 4
+    # row 0 (y = 30) sits at the top: the image rect runs downward from 30.5
+    assert panel.image.mapToView(panel.image.boundingRect().topLeft()).y() > 30.0
+    assert "z=0" in panel._format_cursor(80.0, 30.0)        # NW corner value
+    assert "z=23" in panel._format_cursor(85.0, 27.0)       # SE corner value
+
+    panel.comboBox_z.setCurrentText(pick("series"))          # (time, y)
+    assert panel.checkBox_transposeZ.isChecked()             # time along x
+    assert panel._zz.shape == (4, 3)
+    session.close()
+
+
 def test_map_mesh_stride():
     from ncv.ncvmap import MESH_MAX_CELLS, decimation_stride
 
@@ -827,7 +956,6 @@ def test_contour_bars_mirror_view_and_read_only_at_edges(tmp_path, qt_app):
         panel.resize(800, 600)
         panel.show()
         qt_app.processEvents()
-        panel.checkBox_transposeZ.setChecked(True)          # show (y, x) as is
         panel.comboBox_z.setCurrentText(
             next(c for c in session.cols if c.startswith("v ")))
         qt_app.processEvents()
@@ -928,7 +1056,6 @@ def test_contour_keeps_integer_dtype(tmp_path, qt_app):
     session = NcvSession()
     session.open([str(path)])
     panel = ContourPanel(_panel_window(), session)
-    panel.checkBox_transposeZ.setChecked(True)
     pick = lambda name: next(c for c in session.cols if c.startswith(name + " "))
 
     panel.comboBox_z.setCurrentText(pick("classes"))
