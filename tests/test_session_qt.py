@@ -1557,9 +1557,14 @@ def test_chunk_budget_is_capped_and_respects_cgroup(tmp_path, monkeypatch):
     # nothing readable -> unknown, today's behaviour
     assert common.cgroup_available(str(tmp_path), str(tmp_path / "nope")) is None
 
-    # the budget follows the cgroup room, not the node's MemAvailable
-    monkeypatch.setattr(common, "cgroup_available", lambda: gib)
-    assert common.memory_budget_cells() == int(gib * 0.2 / 32)
+    # the budget follows the cgroup room when it is tighter than the node's
+    # MemAvailable (compare against this machine's own, unlimited, budget)
+    monkeypatch.setattr(common, "cgroup_available", lambda: None)
+    node = common.memory_budget_cells()
+    monkeypatch.setattr(common, "cgroup_available", lambda: gib // 8)
+    assert common.memory_budget_cells() == min(node, int(gib // 8 * 0.2 / 32))
+    monkeypatch.setattr(common, "cgroup_available", lambda: 0)
+    assert common.memory_budget_cells() == 1               # no room at all
 
 
 def test_cli_help_uses_ncv_entrypoint():
@@ -1571,3 +1576,21 @@ def test_cli_help_uses_ncv_entrypoint():
     )
 
     assert "netcdf_file" in result.stdout
+    assert "ncv file.nc" in result.stdout                  # how to open a file
+    assert "xcb-util-cursor" in result.stdout              # X11 forwarding fix
+
+    # --help must work where Qt can't load (a broken HPC environment)
+    code = (
+        "import builtins, sys\n"
+        "real = builtins.__import__\n"
+        "def blocked(name, *a, **k):\n"
+        "    if name.startswith('PyQt6'): raise ImportError('no Qt here')\n"
+        "    return real(name, *a, **k)\n"
+        "builtins.__import__ = blocked\n"
+        "sys.argv = ['ncv', '--help']\n"
+        "from ncv.__main__ import main\n"
+        "main()\n")
+    blocked = subprocess.run([sys.executable, "-c", code], text=True,
+                             capture_output=True, cwd=Path(__file__).parents[1])
+    assert blocked.returncode == 0, blocked.stderr
+    assert "examples:" in blocked.stdout
