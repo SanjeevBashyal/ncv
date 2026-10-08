@@ -10,7 +10,7 @@ from .dimensions import (
 )
 from .ncvcommon import DimensionControlRow, PlotPanel, ScrollableView
 from .ncvcommon import color_levels, cursor_label, load_ui
-from .ncvcommon import native_levels, set_no_data_colors
+from .ncvcommon import native_levels, set_palette_image
 from .ncvcommon import coordinate_variable, display_axes, read_axis
 from .ncvcommon import parse_limits, set_combo_items
 from .ncvutils import cell_edges, format_coord_contour
@@ -31,11 +31,13 @@ class ContourPanel(PlotPanel):
 
         self.plot = pg.PlotWidget()
         self.item = self.plot.plotItem
-        # paint at screen resolution, not the chunk's: 2.8 s -> 0.2 s on 34M cells
-        self.image = pg.ImageItem(autoDownsample=True)
+        # a uint8 palette image that Qt scales at paint time (see
+        # set_palette_image): no autoDownsample re-render on zoom
+        self.image = pg.ImageItem()
         self.item.addItem(self.image)
         self.colorbar = pg.ColorBarItem(interactive=False)
-        self.colorbar.setImageItem(self.image, insert_in=self.item)
+        # placed, not linked: a linked bar pushes its levels onto the image
+        self.colorbar.setImageItem([], insert_in=self.item)
         self.scroll = ScrollableView(self.plot)
         self.init_view_sync()
         self._view_key = None
@@ -245,19 +247,15 @@ class ContourPanel(PlotPanel):
         # ponytail: image cells are evenly spaced across the x/y extent;
         # switch to pg.PColorMeshItem if irregular grids need exact spacing.
         xedges, yedges = cell_edges(xx), cell_edges(yy)
-        self.image.setImage(zz, autoLevels=False)
+        cmap = self.selected_cmap_object(self.comboBox_cmap,
+                                         self.checkBox_revCmap)
+        set_palette_image(self.image, zz, cmap, *levels)
         rect = QtCore.QRectF(xedges[0], yedges[0],
                              xedges[-1] - xedges[0], yedges[-1] - yedges[0])
         self.image.setRect(rect)
         self.set_view_geometry(rect, transposed)
-        cmap = self.selected_cmap_object(self.comboBox_cmap,
-                                         self.checkBox_revCmap)
         self.colorbar.setColorMap(cmap)
         self.colorbar.setLevels(low=levels[0], high=levels[1])
-        if zrange is not None:
-            # after the colorbar, which pushes its own colour table onto the
-            # image: missing cells (dtype minimum) get the transparent entry
-            set_no_data_colors(self.image, cmap, *levels)
         self.colorbar.setLabel("right", zlabel)
 
         self._set_axis("bottom", self._xdate)
