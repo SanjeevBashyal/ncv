@@ -3,12 +3,18 @@ from __future__ import annotations
 
 import numpy as np
 
-from .dimensions import dimension_specs, empty_dimension_specs
+from .dimensions import (
+    dimension_specs,
+    empty_dimension_specs,
+    resolve_selected_variable,
+)
 from .ncvcommon import DimensionControlRow, PlotPanel, ScrollableView
 from .ncvcommon import color_levels, cursor_label, load_ui
 from .ncvcommon import native_levels, set_no_data_colors
+from .ncvcommon import coordinate_variable, display_axes, read_axis
 from .ncvcommon import parse_limits, set_combo_items
 from .ncvutils import cell_edges, format_coord_contour
+from .ncvutils import set_axis_label, vardim2var
 from .qt_compat import QtCore, QtWidgets, pg
 
 
@@ -128,7 +134,60 @@ class ContourPanel(PlotPanel):
         self.yd.set_specs(empty_dimension_specs(self.maxdim))
         self.zd.set_specs(
             dimension_specs(self, self.comboBox_z.currentText(), "z"))
+        self._auto_transpose(self.comboBox_z.currentText())
         self.redraw()
+
+    def _z_dims(self, z):
+        """(variable dimensions, unlimited dimension name) for ``z``."""
+        group, _name = vardim2var(z, self.groups)
+        variable = resolve_selected_variable(self, z)[2]
+        dims = tuple(getattr(variable, "dims", None) or variable.dimensions)
+        unlimited = self.dunlim if self.usex else self.dunlim[group]
+        return variable, dims, unlimited
+
+    def _shown_dims(self, z, transposed):
+        """Names of the dimensions shown as rows and columns."""
+        try:
+            _variable, dims, _unlimited = self._z_dims(z)
+            shown = display_axes(self.zd.values())
+            if len(shown) == 2:
+                rows, cols = shown[::-1] if transposed else shown
+                return dims[rows], dims[cols]
+        except Exception:
+            pass
+        return None, None
+
+    def _default_axis(self, z, dim, window, size):
+        """With no X/Y chosen: the dimension's CF coordinate variable if it
+        has one (so north-first latitude draws north up), else indices."""
+        if window is not None and dim:
+            try:
+                variable, _dims, unlimited = self._z_dims(z)
+                coord = (coordinate_variable(variable, dim)
+                         if dim != unlimited else None)
+                if coord is not None:
+                    values, is_date = read_axis(coord, window)
+                    if values.size == size:
+                        return values, set_axis_label(coord), is_date
+            except Exception:
+                pass
+        values = (np.arange(*window, dtype=float) if window is not None
+                  else np.arange(size, dtype=float))
+        return values, "", False
+
+    def _auto_transpose(self, z):
+        """Show data as stored, except put time along x: tick 'transpose z'
+        when the first shown dimension is the unlimited (time) one."""
+        tick = False
+        try:
+            _variable, dims, unlimited = self._z_dims(z)
+            shown = display_axes(self.zd.values())
+            tick = len(shown) == 2 and dims[shown[0]] == unlimited
+        except Exception:
+            pass
+        blocked = self.checkBox_transposeZ.blockSignals(True)
+        self.checkBox_transposeZ.setChecked(tick)
+        self.checkBox_transposeZ.blockSignals(blocked)
 
     def redraw(self):
         z = self.comboBox_z.currentText()
@@ -146,31 +205,29 @@ class ContourPanel(PlotPanel):
             z, self.zd,
             window=self.scroll_window(z, self.zd, center=self._reload_center),
             native=True)
-        if not self.checkBox_transposeZ.isChecked():
+        transposed = self.checkBox_transposeZ.isChecked()
+        if transposed:
             zz = zz.T
         if zz.ndim < 2:
             print(f"Contour: z ({z}) is not 2-dimensional:", zz.shape)
             return
 
-        transposed = not self.checkBox_transposeZ.isChecked()
-        # without a coordinate, label the axes with the chunk's real indices
         rows_w = cols_w = None
         if self._zwindow is not None:
             rows_w, cols_w = self._zwindow[::-1] if transposed else self._zwindow
+        row_dim, col_dim = self._shown_dims(z, transposed)
         if x:
             xx, xlabel, self._xdate, _ = self._series(
                 x, self.xd, window=self.coord_window(x, True, transposed))
         else:
-            xx = (np.arange(*cols_w, dtype=float) if cols_w
-                  else np.arange(zz.shape[1], dtype=float))
-            xlabel, self._xdate = "", False
+            xx, xlabel, self._xdate = self._default_axis(
+                z, col_dim, cols_w, zz.shape[1])
         if y:
             yy, ylabel, self._ydate, _ = self._series(
                 y, self.yd, window=self.coord_window(y, False, transposed))
         else:
-            yy = (np.arange(*rows_w, dtype=float) if rows_w
-                  else np.arange(zz.shape[0], dtype=float))
-            ylabel, self._ydate = "", False
+            yy, ylabel, self._ydate = self._default_axis(
+                z, row_dim, rows_w, zz.shape[0])
 
         xx = xx[0, :] if xx.ndim > 1 else xx
         yy = yy[:, 0] if yy.ndim > 1 else yy

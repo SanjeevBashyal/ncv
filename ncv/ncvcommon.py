@@ -33,7 +33,9 @@ __all__ = [
     "PlotPanel",
     "TimeControlMixin",
     "color_levels",
+    "coordinate_variable",
     "cursor_label",
+    "read_axis",
     "float_or_none",
     "load_ui",
     "CHUNK_MAX_CELLS",
@@ -227,6 +229,34 @@ def set_no_data_colors(image, cmap, low, high, entries=256):
     step = (high - low) / float(entries - 2) if high > low else 1.0
     image.setLookupTable(lut.astype(np.ubyte))
     image.setLevels((low - step, high))
+
+
+def coordinate_variable(variable, dim):
+    """The 1-D CF coordinate variable of ``dim`` (same name), or None.
+    Works for a netCDF4 Variable and an xarray DataArray."""
+    try:
+        if hasattr(variable, "coords"):                      # xarray
+            coord = variable.coords.get(dim)
+        else:                                                 # netCDF4
+            coord = variable.group().variables.get(dim)
+    except Exception:
+        return None
+    if coord is None or getattr(coord, "ndim", 0) != 1:
+        return None
+    dims = getattr(coord, "dims", None) or getattr(coord, "dimensions", ())
+    return coord if tuple(dims) == (dim,) else None
+
+
+def read_axis(coord, window):
+    """``(values, is_datetime)`` of a 1-D coordinate over ``(start, stop,
+    step)`` - only that range is read."""
+    start, stop, step = window
+    values = (coord.values[start:stop:step] if hasattr(coord, "coords")
+              else coord[start:stop:step])
+    values = np.ma.asanyarray(values)
+    if values.dtype.kind in "fiu":
+        values = np.ma.filled(values.astype(float), np.nan)
+    return to_plot_values(np.asarray(values))
 
 
 def cursor_label(plot_widget, label, formatter, checkbox):

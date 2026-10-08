@@ -43,7 +43,7 @@ from .ncvutils import (
     set_miss,
     vardim2var,
 )
-from .qt_compat import QtCore, QtGui, QtWidgets, pg
+from .qt_compat import QtCore, QtGui, QtWidgets, gl_usable, pg
 
 
 __all__ = [
@@ -55,9 +55,16 @@ __all__ = [
 ]
 
 
-# PColorMeshItem costs ~3.5 us per cell; cap curved-projection renders near 1 s.
-# Flat projections draw an ImageItem, which renders 16M cells in 0.06 s.
-MESH_MAX_CELLS = 4000_000
+# Curvilinear grids draw as a quad mesh (PColorMeshItem). Through OpenGL 4M
+# cells build in ~0.25 s and redraw at ~30 ms a frame; on the CPU renderer
+# every pan/zoom frame repaints every polygon (~2.5 us/cell: 4M = ~10 s), so
+# without OpenGL the mesh stays near a quarter of a million cells.
+MESH_MAX_CELLS = 4_000_000
+MESH_MAX_CELLS_CPU = 250_000
+
+
+def mesh_max_cells():
+    return MESH_MAX_CELLS if gl_usable() else MESH_MAX_CELLS_CPU
 # projections whose x depends only on longitude and y only on latitude,
 # so a plain image with a rectangle extent is exact (and far faster)
 SEPARABLE = ("PlateCarree", "Mercator", "Miller", "LambertCylindrical")
@@ -155,12 +162,13 @@ def _nan_joined(rings):
     return joined[:, 0], joined[:, 1]
 
 
-def decimation_stride(shape):
-    """Stride that keeps a quad-mesh render under ``MESH_MAX_CELLS`` cells."""
+def decimation_stride(shape, max_cells=None):
+    """Stride that keeps a quad-mesh render under ``mesh_max_cells()``."""
+    max_cells = mesh_max_cells() if max_cells is None else max_cells
     cells = int(shape[0]) * int(shape[1])
-    if cells <= MESH_MAX_CELLS:
+    if cells <= max_cells:
         return 1
-    return int(np.ceil(np.sqrt(cells / MESH_MAX_CELLS)))
+    return int(np.ceil(np.sqrt(cells / max_cells)))
 
 
 def spans_globe(lon, tol=1.0):
@@ -233,6 +241,7 @@ class MapPanel(TimeControlMixin, PlotPanel):
         cursor_label(self.plot, self.label_cursor, self._format_cursor,
                      self.checkBox_cursor)
         self._mesh_stride = 1
+        self._rectilinear_cache = {}
         self._view_key = None
         self._native_levels = None
         self._overlays = []
@@ -279,7 +288,8 @@ class MapPanel(TimeControlMixin, PlotPanel):
         self.latd.changed.connect(self.spinned_lat)
         self.comboBox_cmap.currentIndexChanged.connect(self.selected_cmap)
         for check in (self.checkBox_revCmap, self.checkBox_fullCoarse,
-                      self.checkBox_global, self.checkBox_coast,
+                      self.checkBox_global, self.checkBox_boundingBox,
+                      self.checkBox_coast,
                       self.checkBox_borders, self.checkBox_rivers,
                       self.checkBox_lakes, self.checkBox_grid):
             check.stateChanged.connect(self.checked)
@@ -351,10 +361,10 @@ class MapPanel(TimeControlMixin, PlotPanel):
         per_y = rows * (y1 - y0) / (height * vb.height())
         return max(1, int(min(per_x, per_y)))
 
-    def _world_view(self):
-        """The range the aspect-locked view will really show for the world:
-        one axis widens to the widget's shape."""
-        (x0, x1), (y0, y1) = self.iproj.x_limits, self.iproj.y_limits
+    def _world_view(self, target=None):
+        """The range the aspect-locked view will really show for ``target``
+        (default: the world): one axis widens to the widget's shape."""
+        (x0, x1), (y0, y1) = target or (self.iproj.x_limits, self.iproj.y_limits)
         vb = self.item.vb
         width, height = x1 - x0, y1 - y0
         if vb.height() > 0 and height > 0:
@@ -407,6 +417,40 @@ class MapPanel(TimeControlMixin, PlotPanel):
                 self.redraw()
             finally:
                 self._keep_view = False
+
+    def _rectilinear(self, x, y):
+        """True when 2-D lon/lat are really 1-D axes stored as 2-D: every lon
+        row identical, every lat column identical. Four small reads, cached
+        per file and selection. Such grids draw as a plain image."""
+        if not (x and y):
+            return False
+        key = (self.session.generation, x, y)
+        if key not in self._rectilinear_cache:
+            result = False
+            try:
+                lon = resolve_selected_variable(self, x)[2]
+                lat = resolve_selected_variable(self, y)[2]
+                if lon.ndim == 2 and lat.ndim == 2 and lon.shape == lat.shape:
+                    rows = np.ma.filled(lon[::max(1, lon.shape[0] - 1), :], np.nan)
+                    cols = np.ma.filled(lat[:, ::max(1, lat.shape[1] - 1)], np.nan)
+                    result = bool(np.allclose(rows[0], rows[-1], equal_nan=True)
+                                  and np.allclose(cols[:, 0], cols[:, -1],
+                                                  equal_nan=True))
+            except Exception:
+                result = False
+            self._rectilinear_cache[key] = result
+        return self._rectilinear_cache[key]
+
+    def _axis_window(self, vardim, is_x, transposed, rectilinear):
+        """Window for a coordinate; a rectilinear 2-D one is read as a 1-D
+        axis: one row of lon across the columns, one column of lat down the
+        rows."""
+        window = self.coord_window(vardim, is_x, transposed)
+        if rectilinear and window is not None and len(window) == 2:
+            (r0, r1, sr), (c0, c1, sc) = window[0], window[1]
+            window = ({0: (r0, r0 + 1, 1), 1: (c0, c1, sc)} if is_x
+                      else {0: (r0, r1, sr), 1: (c0, c0 + 1, 1)})
+        return window
 
     def _coord_ndim(self, vardim):
         try:
@@ -674,12 +718,20 @@ class MapPanel(TimeControlMixin, PlotPanel):
         projection = self.iprojs[self.projs.index(proj_name)]
 
         transposed = self.checkBox_transVariable.isChecked()
+        rectilinear = not transposed and self._rectilinear(x, y)
         curved = (projection.__name__ not in SEPARABLE
-                  or self._coord_ndim(x) == 2 or self._coord_ndim(y) == 2)
-        self.ixxmean = self._central_longitude(self._lon_extent(x))
+                  or (not rectilinear
+                      and (self._coord_ndim(x) == 2 or self._coord_ndim(y) == 2)))
+        # OpenGL only for the quad mesh: ImageItem has no GPU path, and under
+        # a GL viewport it stops refining its downsample on zoom (blurry)
+        self.plot.useOpenGL(bool(curved and gl_usable()))
+        self.ixxmean = self._central_longitude(self._coord_ends(x))
         self.iclon = float(clon) if clon != "None" else self.ixxmean
         self.iproj = projection(central_longitude=self.iclon)
-        world = not self._keep_view and (
+        bbox = (self._bbox_view(x, y)
+                if self.checkBox_boundingBox.isChecked() and not self._keep_view
+                else None)
+        world = bbox is None and not self._keep_view and (
             self.iiglobal or self._view_key != self.iproj.proj4_init)
 
         vv = xx = yy = vrange = None
@@ -693,7 +745,8 @@ class MapPanel(TimeControlMixin, PlotPanel):
                 # read only as finely as the screen shows the patch: at world
                 # view a 41M-cell patch covers ~34 px, i.e. ~187 cells/pixel
                 self._patch = self._patch_bounds(x, y, transposed)
-                view = (self._world_view() if world
+                view = (self._world_view(bbox) if bbox else
+                        self._world_view() if world
                         else self.item.vb.viewRange())
                 stride = (self._cells_per_pixel(self._patch, view)
                           if self._patch else 1)
@@ -713,11 +766,11 @@ class MapPanel(TimeControlMixin, PlotPanel):
             vv, vlab, vrange = self._variable_values(
                 v, window=window, native=not curved)
         if x:
-            xx = self._coordinate_values(
-                x, self.lond, window=self.coord_window(x, True, transposed))
+            xx = self._coordinate_values(x, self.lond, window=self._axis_window(
+                x, True, transposed, rectilinear))
         if y:
-            yy = self._coordinate_values(
-                y, self.latd, window=self.coord_window(y, False, transposed))
+            yy = self._coordinate_values(y, self.latd, window=self._axis_window(
+                y, False, transposed, rectilinear))
 
         if vv is not None:
             if vv.ndim < 2:
@@ -735,7 +788,11 @@ class MapPanel(TimeControlMixin, PlotPanel):
         if self.checkBox_coast.isChecked() or self.checkBox_grid.isChecked():
             self._draw_graticule(
                 self.iproj, labels=self.checkBox_coast.isChecked())
-        if world:
+        if bbox:
+            # the variable's whole lon/lat extent, on every redraw (like
+            # 'global' for the world, and taking precedence over it)
+            self.item.setRange(xRange=bbox[0], yRange=bbox[1], padding=0.02)
+        elif world:
             # the world: on first draw, a new projection or central longitude
             # (the coordinates change), or when 'global' is ticked. Scrolling
             # and switching variables leave the user's view alone.
@@ -829,25 +886,40 @@ class MapPanel(TimeControlMixin, PlotPanel):
         return np.asarray(
             self.slice_miss(dim_controls, values, window=window), dtype=float)
 
-    def _lon_extent(self, vardim):
-        """First and last longitude of the whole coordinate variable.
-
-        Two values, read directly - and independent of the loaded chunk, so
-        scrolling never shifts the projection's central longitude (which is
-        what used to re-centre the map on every scroll).
-        """
+    def _coord_ends(self, vardim):
+        """End values of a whole coordinate variable: its two ends (1-D) or
+        four corners (2-D). A handful of cells read directly, independent of
+        the loaded chunk - so scrolling never shifts the central longitude."""
         if not vardim:
             return None
         try:
             _group, _name, var = resolve_selected_variable(self, vardim)
-            if var.ndim == 1:
-                return np.asarray(var[::max(1, var.shape[0] - 1)], dtype=float)
-            if var.ndim == 2:
-                return np.asarray(var[0, ::max(1, var.shape[1] - 1)],
-                                  dtype=float)
+            if var.ndim in (1, 2):
+                ends = var[tuple(slice(None, None, max(1, n - 1))
+                                 for n in var.shape)]
+                return np.ma.filled(np.asarray(ends, dtype=float), np.nan).ravel()
         except Exception:
             pass
         return None
+
+    def _bbox_view(self, x, y):
+        """Projected ranges framing the variable's whole lon/lat extent."""
+        lons, lats = self._coord_ends(x), self._coord_ends(y)
+        if lons is None or lats is None:
+            return None
+        lon0, lon1 = np.nanmin(lons), np.nanmax(lons)
+        lat0, lat1 = np.nanmin(lats), np.nanmax(lats)
+        # corners and edge midpoints: curved projections bow the edges
+        glon = np.array([lon0, lon1, lon0, lon1, 0.5 * (lon0 + lon1),
+                         0.5 * (lon0 + lon1), lon0, lon1])
+        glat = np.array([lat0, lat0, lat1, lat1, lat0, lat1,
+                         0.5 * (lat0 + lat1), 0.5 * (lat0 + lat1)])
+        pts = self.iproj.transform_points(ccrs.PlateCarree(), glon, glat)
+        px, py = pts[:, 0], pts[:, 1]
+        px, py = px[np.isfinite(px)], py[np.isfinite(py)]
+        if not (px.size and py.size) or px.min() == px.max() or py.min() == py.max():
+            return None
+        return (px.min(), px.max()), (py.min(), py.max())
 
     def _central_longitude(self, xx):
         if xx is None or np.size(xx) == 0:
@@ -903,7 +975,9 @@ class MapPanel(TimeControlMixin, PlotPanel):
         if isinstance(self.data_item, pg.ImageItem):
             self.data_item.setImage(vv, autoLevels=False)
         elif self.data_item is not None:
-            self.data_item.setData(z=vv)
+            # positional None keeps the geometry; setData(z=...) is not a
+            # keyword and used to clear the whole mesh
+            self.data_item.setData(None, None, vv)
 
     def _format_cursor(self, x, y):
         if self.iproj is None:

@@ -1,6 +1,8 @@
 """PyQt6 and pyqtgraph imports used by ncv."""
 from __future__ import annotations
 
+import os
+
 try:
     from PyQt6 import QtCore, QtGui, QtWidgets, uic
     import pyqtgraph as pg
@@ -17,6 +19,31 @@ else:
     QT_IMPORT_ERROR = None
     pg.setConfigOptions(antialias=True, imageAxisOrder="row-major",
                         background="w", foreground="k")
+
+
+_GL_USABLE = None
+
+
+def gl_usable() -> bool:
+    """Whether to draw through OpenGL. ``NCV_OPENGL=0/1`` decides outright;
+    otherwise it needs a real windowing platform and a working GL context.
+
+    The platform check comes first: ``offscreen`` creates a context too but
+    has nothing to draw on. Not cached until an application exists.
+    """
+    global _GL_USABLE
+    forced = os.environ.get("NCV_OPENGL")
+    if forced is not None:
+        return forced.strip().lower() not in ("0", "", "false", "no", "off")
+    if not QT_AVAILABLE:
+        return False
+    app = QtGui.QGuiApplication.instance()
+    if app is None:
+        return False
+    if _GL_USABLE is None:
+        _GL_USABLE = (app.platformName() not in ("offscreen", "minimal")
+                      and QtGui.QOpenGLContext().create())
+    return _GL_USABLE
 
 
 def require_qt() -> None:
