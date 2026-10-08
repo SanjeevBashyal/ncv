@@ -1013,15 +1013,17 @@ def test_slice_miss_uses_netcdf_mask_without_rescanning(tmp_path, monkeypatch, q
 
 def test_native_integer_image_is_transparent_where_missing(qt_app):
     import pyqtgraph as pg
-    from ncv.ncvcommon import native_levels, set_no_data_colors
+    from ncv.ncvcommon import native_levels, set_palette_image
 
     sentinel = np.iinfo(np.int16).min
     data = np.array([[2, 9, 16], [sentinel, 5, sentinel]], dtype=np.int16)
     levels = native_levels(data, (2, 16))
     assert levels == (2, 16)
     image = pg.ImageItem()
-    image.setImage(data, autoLevels=False)
-    set_no_data_colors(image, pg.colormap.get("viridis"), *levels)
+    set_palette_image(image, data, pg.colormap.get("viridis"), *levels)
+    # uint8 indices: Qt scales them itself, nothing re-rendered on zoom
+    assert image.image.dtype == np.uint8 and image.levels is None
+    assert image.image.tolist() == [[1, 128, 255], [0, 55, 0]]
     image.render()
     qimage = image.qimage
     alpha = lambda row, col: qimage.pixelColor(col, row).alpha()
@@ -1037,6 +1039,38 @@ def test_native_integer_image_is_transparent_where_missing(qt_app):
     clamped = data.copy()
     native_levels(clamped, (2, 16), low=5)
     assert clamped[0, 0] == 5 and clamped[1, 0] == sentinel
+
+    # floats: NaN is the transparent index, out-of-range values saturate
+    set_palette_image(image, np.array([[np.nan, -1.0, 0.5, 9.0]]),
+                      pg.colormap.get("viridis"), 0.0, 1.0)
+    assert image.image.tolist() == [[0, 1, 128, 255]]
+
+
+def test_contour_defaults_to_lat_lon_slice(tmp_path, qt_app):
+    from ncv.dimensions import dimension_specs
+    from ncv.session import NcvSession
+
+    path = tmp_path / "zyx.nc"
+    with nc.Dataset(path, "w") as ds:
+        for name, size in (("z", 3), ("lat", 4), ("lon", 5)):
+            ds.createDimension(name, size)
+        ds.createVariable("lat", "f8", ("lat",))[:] = np.linspace(10, 40, 4)
+        ds["lat"].units = "degrees_north"
+        ds.createVariable("lon", "f8", ("lon",))[:] = np.linspace(0, 40, 5)
+        ds["lon"].units = "degrees_east"
+        ds.createVariable("v", "f4", ("z", "lat", "lon"))[:] = 1.0
+    session = NcvSession()
+    session.open([str(path)])
+    vardim = next(c for c in session.cols if c.startswith("v "))
+    # not depth x lat at lon 0: that slice decompresses every chunk along lat
+    assert [s.value for s in dimension_specs(session, vardim, "z")[:3]] == \
+        ["0", "all", "all"]
+    session.close()
+
+
+def test_import_ncv_does_not_load_xarray():
+    code = "import sys, ncv; assert 'xarray' not in sys.modules, 'xarray'"
+    subprocess.run([sys.executable, "-c", code], check=True)
 
 
 def test_contour_keeps_integer_dtype(tmp_path, qt_app):
@@ -1217,6 +1251,57 @@ def test_map_drag_reads_once_and_at_screen_resolution(tmp_path, qt_app):
             yRange=(box.center().y() - 0.5, box.center().y() + 0.5), padding=0)
         QTest.qWait(350)
         assert panel._read_stride == 1 and len(reads) == 2
+        session.close()
+    finally:
+        common.memory_budget_cells = real
+
+
+def test_map_tiled_patch_is_read_once_at_full_resolution(tmp_path, qt_app):
+    from ncv.ncvmap import HAVE_CARTOPY
+    if not HAVE_CARTOPY:
+        pytest.skip("cartopy unavailable")
+    from PyQt6.QtTest import QTest
+    import ncv.ncvcommon as common
+    from ncv.ncvmap import MapPanel
+    from ncv.session import NcvSession
+
+    path = tmp_path / "tiled.nc"
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("lat", 900)
+        ds.createDimension("lon", 1800)
+        lat = ds.createVariable("lat", "f8", ("lat",))
+        lat.units = "degrees_north"
+        lat[:] = np.linspace(-89.9, 89.9, 900)
+        lon = ds.createVariable("lon", "f8", ("lon",))
+        lon.units = "degrees_east"
+        lon[:] = np.linspace(-179.9, 179.9, 1800)
+        ds.createVariable("v", "i2", ("lat", "lon"), chunksizes=(100, 100),
+                          zlib=True)[:] = 7
+
+    real = common.memory_budget_cells
+    common.memory_budget_cells = lambda *a, **k: 250000     # 500 x 500 patch
+    try:
+        session = NcvSession()
+        session.open([str(path)])
+        panel = MapPanel(_panel_window(), session)
+        panel.resize(900, 600)
+        panel.show()
+        qt_app.processEvents()
+        panel.comboBox_variable.setCurrentText(
+            next(c for c in session.cols if c.startswith("v ")))
+        qt_app.processEvents()
+        # a stride inside a 100 x 100 tile decompresses every tile anyway
+        assert panel._full_patch and panel._read_stride == 1
+        assert panel.ivv.shape == (500, 500)
+
+        reads = []
+        original = panel.redraw
+        panel.redraw = lambda *a, **k: (reads.append(1), original(*a, **k))
+        vb = panel.item.vb
+        for factor in (0.2, 5.0, 3.0):        # zoom in, back out, out more
+            vb.scaleBy((factor, factor))
+            QTest.qWait(350)                  # let each zoom settle
+        assert reads == []                    # Qt rescales; nothing re-read
         session.close()
     finally:
         common.memory_budget_cells = real

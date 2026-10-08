@@ -10,15 +10,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, List, Sequence
 
+import importlib.util
+
 import netCDF4 as nc
 import numpy as np
 
-try:
-    import xarray as xr
-    HAVE_XARRAY = True
-except ModuleNotFoundError:  # pragma: no cover - depends on environment
-    xr = None
-    HAVE_XARRAY = False
+# found, not imported: xarray drags in pandas (~3 s on a cold file system)
+# and is only needed with --xarray
+HAVE_XARRAY = importlib.util.find_spec("xarray") is not None
 
 from .ncvmethods import analyse_netcdf
 
@@ -96,6 +95,7 @@ class NcvSession:
             raise RuntimeError("xarray support was requested but xarray is not installed.")
 
         if self.usex:
+            import xarray as xr
             if len(paths) > 1:
                 self.fi = xr.open_mfdataset(paths)
             else:

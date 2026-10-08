@@ -123,6 +123,12 @@ def dimension_specs(owner, vardim: str, role: str) -> list[DimensionSpec]:
             _set_spec(specs, i, dims[i], shape[i], default)
         return specs
 
+    if role == "z" and latdim in dims and londim in dims:
+        # a lat x lon slice, as on the Map: the first two dims could be e.g.
+        # depth x lat at lon 0, a thin slice that decompresses every chunk
+        # along lat (27 s on a 6 x 84000 x 216000 tiled variable)
+        role = "var"
+
     if role == "z":
         nall = 0
         if dunlim in dims:

@@ -23,7 +23,7 @@ from .ncvcommon import (
     color_levels,
     cursor_label,
     native_levels,
-    set_no_data_colors,
+    set_palette_image,
     float_or_none,
     load_ui,
     memory_budget_cells,
@@ -244,6 +244,8 @@ class MapPanel(TimeControlMixin, PlotPanel):
         self._rectilinear_cache = {}
         self._view_key = None
         self._native_levels = None
+        self._palette = None
+        self._full_patch = False
         self._overlays = []
         self.data_item = None
         self.iproj = None
@@ -405,7 +407,8 @@ class MapPanel(TimeControlMixin, PlotPanel):
     def _check_resolution(self):
         """After a zoom settles, re-read the patch only if the screen now
         needs a resolution at least 2x different from what was read."""
-        if self._updating or self.data_item is None or self._patch is None:
+        if (self._updating or self.data_item is None or self._patch is None
+                or self._full_patch):         # full resolution already
             return
         if reading():                         # one read at a time
             self._zoom_settle.start()
@@ -676,16 +679,14 @@ class MapPanel(TimeControlMixin, PlotPanel):
                 half_y = 0.5
             edges = np.array([[centres[0, 0] - half_x, centres[0, 1] - half_y],
                               [centres[1, 0] + half_x, centres[1, 1] + half_y]])
-            # screen-resolution paint; levels up front so pyqtgraph doesn't
-            # auto-level-scan the whole chunk
-            image = pg.ImageItem(autoDownsample=True)
-            image.setImage(vv, levels=levels, autoLevels=False)
+            # a uint8 palette image Qt scales at paint time: no re-render of
+            # the whole patch on zoom (see set_palette_image)
+            image = pg.ImageItem()
+            set_palette_image(image, vv, cmap, *levels)
             rect = QtCore.QRectF(
                 edges[0, 0], edges[0, 1],
                 edges[1, 0] - edges[0, 0], edges[1, 1] - edges[0, 1])
             image.setRect(rect)
-            image.setColorMap(cmap)
-            image.setLevels(levels)
             self._add_overlay(image)
             return image
 
@@ -737,6 +738,7 @@ class MapPanel(TimeControlMixin, PlotPanel):
         vv = xx = yy = vrange = None
         vlab = ""
         self._patch = None
+        self._full_patch = False
         if v:
             r, c = self.scroll.offsets()
             window = self.scroll_window(
@@ -758,6 +760,15 @@ class MapPanel(TimeControlMixin, PlotPanel):
                 if curved:   # the quad mesh also stays under MESH_MAX_CELLS
                     stride = max(stride, decimation_stride(
                         [window[a][1] - window[a][0] for a in axes]))
+                else:
+                    # a stride inside one chunk still decompresses every chunk:
+                    # read the patch whole once, so a settled zoom re-reads
+                    # nothing (contiguous and row-chunked files stay strided)
+                    chunks = chunk_shape(
+                        resolve_selected_variable(self, v)[2], axes)
+                    if chunks and stride > 1 and stride < min(chunks):
+                        stride = 1
+                        self._full_patch = True
                 self._read_stride = stride
                 for a in axes:
                     start, stop, step = window[a]
@@ -765,10 +776,11 @@ class MapPanel(TimeControlMixin, PlotPanel):
                 self._zwindow = (window[axes[0]], window[axes[1]])
             vv, vlab, vrange = self._variable_values(
                 v, window=window, native=not curved)
-        if x:
+        # coordinates only place data: none to read for an empty map
+        if v and x:
             xx = self._coordinate_values(x, self.lond, window=self._axis_window(
                 x, True, transposed, rectilinear))
-        if y:
+        if v and y:
             yy = self._coordinate_values(y, self.latd, window=self._axis_window(
                 y, False, transposed, rectilinear))
 
@@ -849,14 +861,13 @@ class MapPanel(TimeControlMixin, PlotPanel):
         self.colorbar.setLevels(low=levels[0], high=levels[1])
         self.colorbar.setLabel("right", vlab)
         if not self._colorbar_added:
-            self.colorbar.setImageItem(self.data_item, insert_in=self.item)
+            # placed, not linked: a linked bar pushes its levels onto the
+            # palette image (the mesh carries its own colour map and levels)
+            self.colorbar.setImageItem([], insert_in=self.item)
             self._colorbar_added = True
-        self._native_levels = None
-        if vrange is not None and isinstance(self.data_item, pg.ImageItem):
-            # after the colorbar link, which pushes its own colour table:
-            # missing cells (dtype minimum) get the transparent entry
-            set_no_data_colors(self.data_item, cmap, *levels)
-            self._native_levels = levels
+        palette = isinstance(self.data_item, pg.ImageItem)
+        self._palette = (cmap, levels) if palette else None
+        self._native_levels = levels if palette and vrange is not None else None
         self.ixx, self.iyy, self.ivv = xx, yy, vv
 
     def _variable_values(self, v, window=None, native=False):
@@ -973,7 +984,8 @@ class MapPanel(TimeControlMixin, PlotPanel):
             vv = vv[::self._mesh_stride, ::self._mesh_stride]
         self.ivv = vv
         if isinstance(self.data_item, pg.ImageItem):
-            self.data_item.setImage(vv, autoLevels=False)
+            cmap, levels = self._palette
+            set_palette_image(self.data_item, vv, cmap, *levels)
         elif self.data_item is not None:
             # positional None keeps the geometry; setData(z=...) is not a
             # keyword and used to clear the whole mesh

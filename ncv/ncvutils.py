@@ -72,11 +72,6 @@ try:
     import cartopy.crs as ccrs
 except ModuleNotFoundError:
     ccrs = None
-try:
-    import xarray as xr
-    ihavex = True
-except ModuleNotFoundError:
-    ihavex = False
 
 
 __all__ = ['DIMMETHODS',
@@ -626,10 +621,7 @@ def get_slice_values(dim_values, y, window=None):
     >>> yy = set_miss(miss, yy)
 
     """
-    isxarray = False
-    if ihavex:
-        if isinstance(y, xr.DataArray):
-            isxarray = True
+    isxarray = hasattr(y, "isel")    # xarray.DataArray, without importing it
     methods = ['all']
     methods.extend(DIMMETHODS)
     dd = []

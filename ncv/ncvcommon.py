@@ -42,7 +42,7 @@ __all__ = [
     "cgroup_available",
     "memory_budget_cells",
     "native_levels",
-    "set_no_data_colors",
+    "set_palette_image",
     "parse_limits",
     "read_responsive",
     "reading",
@@ -219,16 +219,30 @@ def native_levels(data, data_range, low=None, high=None):
     return low, high
 
 
-def set_no_data_colors(image, cmap, low, high, entries=256):
-    """Colour an integer image without NaN: entry 0 of the colour table is
-    transparent and the levels start one step below ``low``, so the real
-    minimum maps to entry 1 and the dtype-minimum sentinel clips to entry 0.
+def set_palette_image(image, data, cmap, low, high):
+    """Show ``data`` on ``image`` as uint8 colour indices.
+
+    Qt scales an indexed image itself at each paint (~20 ms per zoom step),
+    where pyqtgraph's autoDownsample re-coloured and mean-averaged the whole
+    chunk on every zoom level (0.2-1.5 s on 36M cells) - and averaged class
+    codes into classes that do not exist.  ``low`` maps to index 1 and
+    ``high`` to 255; index 0 is transparent: NaN, or the dtype-minimum
+    sentinel of a native integer chunk.
     """
-    lut = np.vstack(([0, 0, 0, 0],
-                     cmap.getLookupTable(nPts=entries - 1, alpha=True)))
-    step = (high - low) / float(entries - 2) if high > low else 1.0
+    data = np.asarray(data)
+    x = data.astype(np.float32)
+    if data.dtype.kind == "i":
+        missing = data == np.iinfo(data.dtype).min
+    else:
+        missing = ~np.isfinite(x)
+    x -= low
+    x *= 254.0 / (high - low) if high > low else 0.0
+    np.clip(x, 0.0, 254.0, out=x)
+    x += 1.5                       # rounds on the cast: [low, high] -> 1..255
+    x[missing] = 0.0
+    lut = np.vstack(([0, 0, 0, 0], cmap.getLookupTable(nPts=255, alpha=True)))
+    image.setImage(x.astype(np.uint8), levels=None, autoLevels=False)
     image.setLookupTable(lut.astype(np.ubyte))
-    image.setLevels((low - step, high))
 
 
 def coordinate_variable(variable, dim):
@@ -414,8 +428,12 @@ class DimensionControlRow(QtWidgets.QWidget):
         while len(self.selectors) < max(count, 1):
             label = QtWidgets.QLabel(str(len(self.selectors)))
             selector = QtWidgets.QComboBox()
+            # not AdjustToContents: that measures every item on each relayout,
+            # 0.7 s for a 216000-entry dimension
             selector.setSizeAdjustPolicy(
-                QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
+                QtWidgets.QComboBox.SizeAdjustPolicy
+                .AdjustToMinimumContentsLengthWithIcon)
+            selector.setMinimumContentsLength(7)
             selector.currentIndexChanged.connect(self.changed)
             self.labels.append(label)
             self.selectors.append(selector)
@@ -662,10 +680,23 @@ class PlotPanel(QtWidgets.QWidget):
         return values if self.usex else values[group]
 
     def populate_cmap_combo(self, combo):
-        combo.clear()
-        for name in sorted(pg.colormap.listMaps()):
-            combo.addItem(_cmap_icon(pg.colormap.get(name)), name)
-        combo.setCurrentText("viridis")
+        """Fill ``combo`` once the window shows: parsing pyqtgraph's colour
+        maps for the icons takes ~0.6 s.  Until then the empty combo means
+        viridis (see ``selected_cmap_object``)."""
+        def fill():
+            blocked = combo.blockSignals(True)   # no redraw for the fill
+            try:
+                combo.clear()
+                for name in sorted(pg.colormap.listMaps()):
+                    combo.addItem(_cmap_icon(pg.colormap.get(name)), name)
+                combo.setCurrentText("viridis")
+            finally:
+                combo.blockSignals(blocked)
+
+        timer = QtCore.QTimer(combo)    # dies with the combo, fill and all
+        timer.setSingleShot(True)
+        timer.timeout.connect(fill)
+        timer.start(0)
 
     def selected_cmap_object(self, combo, reverse_check):
         cmap = pg.colormap.get(combo.currentText() or "viridis")
@@ -682,7 +713,7 @@ class PlotPanel(QtWidgets.QWidget):
         Normally returns a float array with NaN where data is missing.  With
         ``native`` an unscaled signed-integer chunk is kept in its own dtype
         instead - no float copy - and ``(data, (min, max))`` is returned, with
-        missing cells set to the dtype minimum (see ``set_no_data_colors``).
+        missing cells set to the dtype minimum (see ``set_palette_image``).
         """
         miss = get_miss(self, variable)
         values = dim_controls.values()

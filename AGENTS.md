@@ -54,8 +54,19 @@ ncv` must not touch Qt or Cartopy.
   ticked. netCDF4 cost is per **chunk decompressed**, not per value returned, so
   sub-chunk strides do not help.
 - **Integer chunks stay native** (no float64 copy): missing cells hold the
-  dtype minimum and render through a colour table whose entry 0 is transparent
-  (`native_levels`, `set_no_data_colors`). Floats use NaN.
+  dtype minimum. Floats use NaN.
+- **Images are uint8 palettes** (`set_palette_image`): values map to colour
+  indices 1-255, missing to 0 (transparent), and Qt scales the indexed image
+  at paint time (~20 ms per zoom step). Do not use pyqtgraph `autoDownsample`:
+  it re-renders and mean-averages the whole chunk at every zoom level (0.2-1.5
+  s on 36M cells) and averages class codes into classes that don't exist. The
+  `ColorBarItem` is placed with `setImageItem([], insert_in=...)`, not linked:
+  a linked bar pushes its levels onto the image.
+- **Startup**: xarray is only located (`find_spec`) at import, and imported
+  with `--xarray`: it pulls in pandas, ~3 s on a cold file system. Dimension
+  combos use `AdjustToMinimumContentsLengthWithIcon`: `AdjustToContents`
+  measures every item on each relayout (0.7 s for a 216000-entry dimension).
+  Colormap combos fill after the window shows.
 - **Blocking reads** run through `read_responsive()` on a worker thread (one at
   a time — netCDF-C is not thread-safe), while the event loop keeps painting.
   Timers that would start another redraw check `reading()` and re-arm.
@@ -69,10 +80,16 @@ ncv` must not touch Qt or Cartopy.
   displayed region. `transpose z` means what it says: data is shown as stored,
   except the box auto-ticks to put time on x. With X/Y empty, an axis uses its
   dimension's 1-D CF coordinate variable, so north-first latitude draws
-  north-up.
+  north-up. A variable with lat and lon dimensions defaults to the lat x lon
+  slice: the first two dims (e.g. depth x lat at lon 0) are a thin slice that
+  decompresses every chunk along lat (27 s on a 6x84000x216000 tiled variable).
 - **Map**: navigation and loading are decoupled. It opens at the world extent,
   and the bars choose the loaded patch, which is read at the screen's
   resolution (re-read only when a settled zoom needs ≥2× finer or coarser data).
+  When that stride falls inside one chunk, every chunk is decompressed anyway:
+  the patch is read once at full resolution (`_full_patch`) and zooms re-read
+  nothing. Contiguous and row-chunked files keep strided reads.
+  With no variable selected, no coordinates are read.
   The view re-ranges only on first draw, a projection or central-longitude
   change, `global`, or `bbox` (fits the variable's lon/lat extent).
 - **Map rendering**: rectilinear grids (1-D lon/lat, or 2-D lon/lat with
@@ -80,8 +97,9 @@ ncv` must not touch Qt or Cartopy.
   Curvilinear grids draw as a `PColorMeshItem`, and the Map switches to the
   OpenGL viewport only then: GPU ~30 ms per frame at 4M cells, CPU ~10 s.
   `MESH_MAX_CELLS` is 4M with OpenGL and `MESH_MAX_CELLS_CPU` 250k without.
-  Do not put `ImageItem` on a GL viewport: in pyqtgraph 0.14 it stops refining
-  `autoDownsample` on zoom. `NCV_OPENGL=0/1` forces the choice. To update mesh
+  Do not put `ImageItem` on a GL viewport: in pyqtgraph 0.14 it stopped
+  refining `autoDownsample` on zoom (not re-checked since images became uint8
+  palettes). `NCV_OPENGL=0/1` forces the choice. To update mesh
   values, call `setData(None, None, z)` — `setData(z=...)` clears the mesh.
 - **Matrix**: the outer bars pick the loaded chunk (thumb = the chunk); the
   table's own bars scroll within it without reading. Headers and
