@@ -77,7 +77,8 @@ except ModuleNotFoundError:
 __all__ = ['DIMMETHODS',
            'add_cyclic', 'has_cyclic',
            'cell_edges', 'chunk_shape', 'datetime_str',
-           'format_coord_contour', 'format_coord_map',
+           'format_coord_contour', 'format_coord_map', 'nearest_map_cell',
+           'cell_value', 'nearest_contour_cell', 'cell_contains',
            'get_slice', 'get_slice_values', 'get_standard_name', 'get_units', 'overview_stride',
            'list_intersection', 'parse_entry',
            'selvar', 'set_axis_label', 'set_miss',
@@ -508,22 +509,103 @@ def format_coord_contour(x, y, xx, yy, zz, xdate=False, ydate=False):
     """
     xarr = xx[0, :] if xx.ndim > 1 else xx
     yarr = yy[:, 0] if yy.ndim > 1 else yy
-    xlim, ylim = cell_edges(xarr)[[0, -1]], cell_edges(yarr)[[0, -1]]
-    if (min(xlim) <= x <= max(xlim)) and (min(ylim) <= y <= max(ylim)):
-        # nearest cell centre on each axis: right whether an axis runs up or
-        # down (north-first latitude), unlike searchsorted
-        col = np.abs(xarr - x).argmin()
-        row = np.abs(yarr - y).argmin()
-        xout, yout, zout = xarr[col], yarr[row], zz[row, col]
-    else:
+    cell = nearest_contour_cell(x, y, xarr, yarr)
+    if cell is None:
         xout, yout, zout = x, y, np.nan
-
-    if np.issubdtype(np.asarray(zz).dtype, np.signedinteger) and \
-            zout == np.iinfo(np.asarray(zz).dtype).min:
-        zout = np.nan                       # no-data sentinel of a native chunk
+    else:
+        xout, yout, zout = xarr[cell[1]], yarr[cell[0]], cell_value(zz, cell)
     xstr = datetime_str(xout) if xdate else f'{xout:.6g}'
     ystr = datetime_str(yout) if ydate else f'{yout:.6g}'
     return f'x={xstr}, y={ystr}, z={zout:.6g}'
+
+
+def cell_value(zz, cell):
+    """``zz[cell]`` as a float, NaN where missing: NaN, or the dtype minimum
+    (the no-data sentinel of a native integer chunk)."""
+    zz = np.asarray(zz)
+    value = zz[cell]
+    if np.issubdtype(zz.dtype, np.signedinteger) and \
+            value == np.iinfo(zz.dtype).min:
+        return np.nan
+    return float(value)
+
+
+def nearest_contour_cell(x, y, xarr, yarr):
+    """``(row, col)`` of the image cell under ``x``/``y``, None outside the
+    image.  Nearest cell centre on each 1-D axis: right whether an axis runs
+    up or down (north-first latitude), unlike searchsorted."""
+    xlim, ylim = cell_edges(xarr)[[0, -1]], cell_edges(yarr)[[0, -1]]
+    if not (min(xlim) <= x <= max(xlim) and min(ylim) <= y <= max(ylim)):
+        return None
+    return int(np.abs(yarr - y).argmin()), int(np.abs(xarr - x).argmin())
+
+
+def cell_contains(lon, lat, xx, yy, cell):
+    """True when ``lon``/``lat`` lies inside ``cell`` of the grid ``xx``/``yy``
+    (1-D axes or 2-D curvilinear): within half a grid step of its centre
+    along both grid directions, so a point beyond the grid is in no cell.
+    Exact for rectilinear grids, a parallelogram for curvilinear cells."""
+    r, c = cell
+    xx, yy = np.asarray(xx, dtype=float), np.asarray(yy, dtype=float)
+    if xx.ndim == 1:
+        rows, cols = yy.size, xx.size
+        def at(i, j): return xx[j], yy[i]
+    else:
+        rows, cols = xx.shape
+        def at(i, j): return xx[i, j], yy[i, j]
+    if rows < 2 or cols < 2:
+        return True     # ponytail: no step to measure on a one-line grid
+    def wrap(d): return (d + 180.) % 360. - 180.
+    x0, y0 = at(r, c)
+
+    def step(i, j, sign):           # grid step to a neighbour, lon wrapped
+        x1, y1 = at(i, j)
+        return sign * wrap(x1 - x0), sign * (y1 - y0)
+
+    a = step(r, c + 1, 1.) if c + 1 < cols else step(r, c - 1, -1.)
+    b = step(r + 1, c, 1.) if r + 1 < rows else step(r - 1, c, -1.)
+    try:
+        s, t = np.linalg.solve(np.array([a, b]).T,
+                               [wrap(lon - x0), lat - y0])
+    except np.linalg.LinAlgError:
+        return False
+    return bool(abs(s) <= 0.5 + 1e-9 and abs(t) <= 0.5 + 1e-9)   # NaN: False
+
+
+def nearest_map_cell(lon, lat, xx, yy, shape):
+    """``(row, col)`` of the grid cell nearest to ``lon``/``lat``, or None
+    when ``xx``/``yy`` do not match ``shape``."""
+    lon360 = (lon + 360.) % 360.
+    if np.ndim(xx) == 1 and np.ndim(yy) == 1:
+        # a separable grid: the nearest cell is the nearest column crossed
+        # with the nearest row. Searching the axes is O(nx + ny); the old
+        # meshgrid over a full-resolution patch (46M cells, ~740 MB) took 3 s
+        # per mouse move and hung the map while panning
+        if tuple(shape) != (np.size(yy), np.size(xx)):
+            return None
+        col = np.abs(((np.asarray(xx) + 360.) % 360.) - lon360).argmin()
+        row = np.abs(np.asarray(yy) - lat).argmin()
+        return int(row), int(col)
+    # curvilinear: the quad-mesh path, up to millions of cells
+    if np.shape(xx) != tuple(shape):
+        return None
+    # search a strided grid, then refine around the hit: ~20k
+    # comparisons instead of every cell (4M cells: 0.9 ms, was ~0.3 s).
+    # ponytail: exact for smooth grids; a folded grid could fool the
+    # coarse pass - scipy's cKDTree is the upgrade if that ever matters.
+    xx, yy = np.asarray(xx), np.asarray(yy)
+
+    def nearest(rows, cols):
+        dist = ((((xx[rows, cols] + 360.) % 360.) - lon360)**2
+                + (yy[rows, cols] - lat)**2)
+        return np.unravel_index(np.nanargmin(dist), dist.shape)
+
+    size = int(np.prod(shape))
+    step = max(1, int(np.ceil(np.sqrt(size / 10_000))))
+    r, c = nearest(slice(None, None, step), slice(None, None, step))
+    r0, c0 = max(0, (r - 1) * step), max(0, (c - 1) * step)
+    r, c = nearest(slice(r0, (r + 2) * step), slice(c0, (c + 2) * step))
+    return int(r0 + r), int(c0 + c)
 
 
 def format_coord_map(x, y, proj, xx, yy, zz):
@@ -558,41 +640,10 @@ def format_coord_map(x, y, proj, xx, yy, zz):
 
     # nearest grid cell - runs on every mouse move
     zz = np.asarray(zz)
-    lon360 = (lon + 360.) % 360.
-    if np.ndim(xx) == 1 and np.ndim(yy) == 1:
-        # a separable grid: the nearest cell is the nearest column crossed
-        # with the nearest row. Searching the axes is O(nx + ny); the old
-        # meshgrid over a full-resolution patch (46M cells, ~740 MB) took 3 s
-        # per mouse move and hung the map while panning
-        if zz.shape != (np.size(yy), np.size(xx)):
-            return out
-        col = np.abs(((np.asarray(xx) + 360.) % 360.) - lon360).argmin()
-        row = np.abs(np.asarray(yy) - lat).argmin()
-        zout = zz[row, col]
-    else:
-        # curvilinear: the quad-mesh path, up to millions of cells
-        if np.shape(xx) != zz.shape:
-            return out
-        # search a strided grid, then refine around the hit: ~20k
-        # comparisons instead of every cell (4M cells: 0.9 ms, was ~0.3 s).
-        # ponytail: exact for smooth grids; a folded grid could fool the
-        # coarse pass - scipy's cKDTree is the upgrade if that ever matters.
-        xx, yy = np.asarray(xx), np.asarray(yy)
-
-        def nearest(rows, cols):
-            dist = ((((xx[rows, cols] + 360.) % 360.) - lon360)**2
-                    + (yy[rows, cols] - lat)**2)
-            return np.unravel_index(np.nanargmin(dist), dist.shape)
-
-        step = max(1, int(np.ceil(np.sqrt(zz.size / 10_000))))
-        r, c = nearest(slice(None, None, step), slice(None, None, step))
-        r0, c0 = max(0, (r - 1) * step), max(0, (c - 1) * step)
-        r, c = nearest(slice(r0, (r + 2) * step), slice(c0, (c + 2) * step))
-        zout = zz[r0 + r, c0 + c]
-    if np.issubdtype(zz.dtype, np.signedinteger) and \
-            zout == np.iinfo(zz.dtype).min:
-        zout = np.nan                       # no-data sentinel of a native chunk
-    return f'{out}, z={zout:.6g}'
+    cell = nearest_map_cell(lon, lat, xx, yy, zz.shape)
+    if cell is None:
+        return out
+    return f'{out}, z={cell_value(zz, cell):.6g}'
 
 
 def get_slice_values(dim_values, y, window=None):

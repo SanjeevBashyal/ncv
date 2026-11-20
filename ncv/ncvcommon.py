@@ -128,9 +128,9 @@ def cgroup_available(root="/sys/fs/cgroup", proc="/proc/self/cgroup"):
         folder = os.path.dirname(folder)
 
 
-def memory_budget_cells(fraction=0.2, bytes_per_cell=32):
+def memory_budget_cells(fraction=0.2, bytes_per_cell=32, cap=CHUNK_MAX_CELLS):
     """Cells that may be held at once: a fraction of currently available RAM,
-    capped at ``CHUNK_MAX_CELLS``.
+    capped at ``cap`` (switch time for an image; None for no cap).
 
     32 bytes per cell covers the float64 read, the clamp copy and pyqtgraph's
     RGBA image.  Linux reports MemAvailable, which counts reclaimable cache;
@@ -155,8 +155,8 @@ def memory_budget_cells(fraction=0.2, bytes_per_cell=32):
     limit = cgroup_available()
     if limit is not None:
         available = min(available, limit)
-    return max(1, min(CHUNK_MAX_CELLS,
-                      int(available * fraction / bytes_per_cell)))
+    cells = int(available * fraction / bytes_per_cell)
+    return max(1, cells if cap is None else min(cap, cells))
 
 
 def display_axes(dim_values):
@@ -219,15 +219,96 @@ def native_levels(data, data_range, low=None, high=None):
     return low, high
 
 
-def set_palette_image(image, data, cmap, low, high):
+BANDS = 10      # colour bands of the "Banded" scale
+EQ_BINS = 65536  # value bins of the "Equalised" scale's lookup table
+
+
+def color_scale(scale, low, high, data=None):
+    """``f(x)`` mapping float32 values (in place) to colour positions 0..1
+    for a ``comboBox_cscale`` choice, or None for Linear (the fast path).
+
+    Log: log10 between ``low`` and ``high``.  Low / High: ncview's stretch of
+    the low / high end.  Banded: ``BANDS`` flat bands, like filled contours.
+    Equalised: positions follow the quantiles of a sample of ``data``.
+    """
+    if scale not in ("Log", "Low", "High", "Banded", "Equalised") or \
+            not high > low:
+        return None
+    if scale == "Equalised":
+        sample = np.asarray(data, dtype=np.float32).ravel()
+        sample = sample[::max(1, sample.size // 100_000)]
+        sample = sample[(sample >= low) & (sample <= high)]  # no NaN, sentinel
+        if sample.size == 0:
+            return None
+        # histogram equalisation: a CDF table over EQ_BINS linear bins, looked
+        # up per cell (~0.2 s on 36M cells; np.interp on quantiles took 2.5 s)
+        counts = np.histogram(sample, bins=EQ_BINS, range=(low, high))[0]
+        table = ((np.cumsum(counts) - counts / 2) / sample.size).astype(np.float32)
+
+        def f(x):
+            nan = np.isnan(x)
+            x[nan] = low                    # restored below; no NaN cast
+            x -= low
+            x *= EQ_BINS / (high - low)
+            np.clip(x, 0, EQ_BINS - 1, out=x)
+            x[...] = np.take(table, x.astype(np.int32), mode="clip")
+            x[nan] = np.nan
+            return x
+        return f
+    if scale == "Log":
+        # ponytail: data reaching 0 shows six decades below the maximum
+        floor = low if low > 0 else high * 1e-6
+        if not floor > 0:
+            return None
+        lo, span = np.log10(floor), np.log10(high / floor)
+    else:
+        lo, span = low, high - low
+
+    def f(x):
+        if scale == "Log":
+            np.maximum(x, floor, out=x)
+            np.log10(x, out=x)
+        x -= lo
+        x /= span
+        np.clip(x, 0.0, 1.0, out=x)
+        if scale == "Low":                  # log10(1 + 9t)
+            x *= 9.0
+            x += 1.0
+            np.log10(x, out=x)
+        elif scale == "High":               # 1 - log10(1 + 9(1 - t))
+            x *= -9.0
+            x += 10.0
+            np.log10(x, out=x)
+            np.subtract(1.0, x, out=x)
+        elif scale == "Banded":
+            x *= BANDS
+            np.floor(x, out=x)
+            np.minimum(x, BANDS - 1, out=x)
+            x += 0.5
+            x /= BANDS
+        return x
+    return f
+
+
+def scaled_colormap(cmap, scale_fn, low, high):
+    """``cmap`` re-spaced by ``scale_fn`` for the colour bar: its value axis
+    stays linear and each value shows the colour the image gives it."""
+    if scale_fn is None:
+        return cmap
+    steps = np.linspace(0.0, 1.0, 256)
+    pos = scale_fn(np.linspace(low, high, 256, dtype=np.float32))
+    return pg.ColorMap(steps, cmap.map(pos.astype(float), mode="byte"))
+
+
+def set_palette_image(image, data, cmap, low, high, scale_fn=None):
     """Show ``data`` on ``image`` as uint8 colour indices.
 
     Qt scales an indexed image itself at each paint (~20 ms per zoom step),
     where pyqtgraph's autoDownsample re-coloured and mean-averaged the whole
     chunk on every zoom level (0.2-1.5 s on 36M cells) - and averaged class
     codes into classes that do not exist.  ``low`` maps to index 1 and
-    ``high`` to 255; index 0 is transparent: NaN, or the dtype-minimum
-    sentinel of a native integer chunk.
+    ``high`` to 255 (through ``scale_fn``, see ``color_scale``); index 0 is
+    transparent: NaN, or the dtype-minimum sentinel of a native integer chunk.
     """
     data = np.asarray(data)
     x = data.astype(np.float32)
@@ -235,9 +316,13 @@ def set_palette_image(image, data, cmap, low, high):
         missing = data == np.iinfo(data.dtype).min
     else:
         missing = ~np.isfinite(x)
-    x -= low
-    x *= 254.0 / (high - low) if high > low else 0.0
-    np.clip(x, 0.0, 254.0, out=x)
+    if scale_fn is None:
+        x -= low
+        x *= 254.0 / (high - low) if high > low else 0.0
+        np.clip(x, 0.0, 254.0, out=x)
+    else:
+        scale_fn(x)
+        x *= 254.0
     x += 1.5                       # rounds on the cast: [low, high] -> 1..255
     x[missing] = 0.0
     lut = np.vstack(([0, 0, 0, 0], cmap.getLookupTable(nPts=255, alpha=True)))
@@ -289,6 +374,22 @@ def cursor_label(plot_widget, label, formatter, checkbox):
     plot_widget.scene().sigMouseMoved.connect(moved)
     checkbox.toggled.connect(lambda on: on or label.clear())
     return label
+
+
+def cell_double_click(plot_widget, callback, checkbox):
+    """Call ``callback(x, y)`` with the view coordinates of a double-click,
+    only while ``checkbox`` (the cursor read-out box) is ticked."""
+    view = plot_widget.plotItem.vb
+
+    def clicked(event):
+        if not (event.double() and checkbox.isChecked()):
+            return
+        pos = event.scenePos()
+        if view.sceneBoundingRect().contains(pos):
+            point = view.mapSceneToView(pos)
+            callback(point.x(), point.y())
+
+    plot_widget.scene().sigMouseClicked.connect(clicked)
 
 
 def float_or_none(value: str):
@@ -662,6 +763,8 @@ class PlotPanel(QtWidgets.QWidget):
         self._updating = False
         self._zwindow = None
         self._chunk_notified = None
+        self._series_win = None
+        self._series_tile = None
         self._copy_session()
 
     def _copy_session(self):
@@ -715,8 +818,8 @@ class PlotPanel(QtWidgets.QWidget):
         instead - no float copy - and ``(data, (min, max))`` is returned, with
         missing cells set to the dtype minimum (see ``set_palette_image``).
         """
-        miss = get_miss(self, variable)
-        values = dim_controls.values()
+        values = (list(dim_controls) if isinstance(dim_controls, list)
+                  else dim_controls.values())
         values.extend(["0"] * max(0, variable.ndim - len(values)))
         out = read_responsive(
             lambda: get_slice_values(values, variable, window=window))
@@ -726,6 +829,10 @@ class PlotPanel(QtWidgets.QWidget):
             kept = self._native_chunk(out)
             if kept is not None:
                 return kept
+        return self._to_nan(out, get_miss(self, variable))
+
+    def _to_nan(self, out, miss):
+        """Float copy of a read with NaN where missing."""
         if (isinstance(out, np.ma.MaskedArray)
                 and np.issubdtype(out.dtype, np.number)):
             # netCDF4 already masked _FillValue / missing_value / the default
@@ -741,6 +848,146 @@ class PlotPanel(QtWidgets.QWidget):
         except IndexError:
             out = np.array([np.nan])
         return out
+
+    def _plot_cell_series(self, vardim, dim_controls, row, col, transposed,
+                          where):
+        """Add the shown cell ``row``/``col`` (labelled ``where``) along time,
+        else the first other dimension longer than one, to this panel's
+        series window, as ncview does.  Reads one value per step, never the
+        variable."""
+        if self._zwindow is None:
+            return
+        group, name, variable = resolve_selected_variable(self, vardim)
+        dims = tuple(getattr(variable, "dims", None) or variable.dimensions)
+        values = dim_controls.values()
+        values.extend(["0"] * max(0, variable.ndim - len(values)))
+        shown = display_axes(values)
+        if len(shown) != 2:
+            return
+        if transposed:
+            row, col = col, row
+        for axis, i, (start, _stop, step) in zip(shown, (row, col),
+                                                 self._zwindow):
+            values[axis] = str(start + i * step)
+        free = [a for a in range(variable.ndim)
+                if a not in shown and variable.shape[a] > 1]
+        if not free:
+            self.label_cursor.setText(f"{name}: no time dimension to plot")
+            return
+        unlimited = self.dunlim if self.usex else self.dunlim[group]
+        axis = (dims.index(unlimited) if unlimited in dims
+                and dims.index(unlimited) in free else free[0])
+        label = f"{name} @ {where} [" + ", ".join(
+            f"{dims[a]}={values[a]}" for a in range(variable.ndim)
+            if a != axis) + "]"
+        win = self._series_win
+        if win is not None and label in {
+                line.name() for line in win.plot.plotItem.listDataItems()}:
+            win.raise_()        # already plotted: nothing to read
+            return
+        values[axis] = "all"
+        win = self._series_window()     # up before the read: the click answers
+        win.setWindowTitle(f"ncv {self.name}: reading {name}…")
+        try:
+            y = self._cell_series(vardim, variable, values, shown, axis)
+        finally:
+            win.setWindowTitle(f"ncv {self.name}: time series")
+        x, is_date, xlabel = np.arange(y.size, dtype=float), False, dims[axis]
+        try:    # time from the session, else the dim's coordinate variable
+            if dims[axis] == unlimited:
+                found, found_label = (
+                    to_plot_values(self.time_values(group)), "Date")
+            else:
+                coord = coordinate_variable(variable, dims[axis])
+                found, found_label = (read_axis(coord, (0, y.size, 1)),
+                                      set_axis_label(coord))
+            if found[0].size == y.size:
+                (x, is_date), xlabel = found, found_label
+        except Exception:
+            pass
+        if x.size > 1 and x[0] > x[-1]:     # clipToView wants x ascending
+            x, y = x[::-1], y[::-1]
+
+        item = win.plot.plotItem
+        if isinstance(item.getAxis("bottom"), pg.DateAxisItem) != is_date:
+            item.clear()    # dates and plain numbers don't share an axis
+            win.ylabels.clear()
+            item.setAxisItems({"bottom": (
+                pg.DateAxisItem(orientation="bottom") if is_date
+                else pg.AxisItem(orientation="bottom"))})
+        color = pg.intColor(len(item.listDataItems()), hues=9)
+        # a marker is one pixmap blit per point per repaint (4.6 s to add a
+        # 1e6-step series): only short series get them
+        markers = ({"symbol": "o", "symbolSize": 5, "symbolBrush": color}
+                   if y.size <= 2000 else {})
+        item.plot(x, y, pen=color, connect="finite", name=label, **markers)
+        win.ylabels.add(set_axis_label(variable))
+        item.setLabel("left", next(iter(win.ylabels))
+                      if len(win.ylabels) == 1 else "")
+        item.setLabel("bottom", xlabel)
+
+    def _series_window(self):
+        """This panel's series dialog, created on first use and shown."""
+        win = self._series_win
+        if win is None:
+            win = self._series_win = QtWidgets.QDialog(self)
+            win.setAttribute(QtCore.Qt.WidgetAttribute.WA_DeleteOnClose)
+            win.plot = pg.PlotWidget()
+            win.plot.showGrid(x=True, y=True, alpha=0.3)
+            win.plot.addLegend()
+            # ~2 points per pixel (spikes kept), visible range only: a 1e6-step
+            # series pans like a short one
+            win.plot.setDownsampling(auto=True, mode="peak")
+            win.plot.setClipToView(True)
+            win.ylabels = set()
+            QtWidgets.QVBoxLayout(win).addWidget(win.plot)
+            def forget(*_):             # closing frees the cached tile too
+                self._series_win = self._series_tile = None
+            win.destroyed.connect(forget)
+            win.resize(720, 420)
+        win.show()
+        win.raise_()
+        return win
+
+    def _cell_series(self, vardim, variable, values, shown, axis):
+        """The series selected by ``values`` (``all`` on ``axis``, indices on
+        ``shown``).  netCDF pays per chunk decompressed (~11 µs each: 2.7 s
+        for one cell of a 244k-step hourly file stored one chunk per step), so
+        the cell's whole spatial chunk tile is read in that same pass and
+        kept: later clicks inside the tile read nothing."""
+        idx = [int(values[a]) for a in shown]
+        chunks = chunk_shape(variable, shown)
+        steps = variable.shape[axis]
+        if chunks:
+            tile = [(i // c * c, min(i // c * c + c, variable.shape[a]))
+                    for i, c, a in zip(idx, chunks, shown)]
+            rows, cols = (t1 - t0 for t0, t1 in tile)
+            key = (self.session.generation, vardim, axis, tuple(tile),
+                   tuple(v for a, v in enumerate(values) if a not in shown))
+            # a cached tile is used whatever the budget says now: holding it
+            # is what lowered the available memory
+            hit = self._series_tile is not None and self._series_tile[0] == key
+            if hit or steps * rows * cols <= memory_budget_cells(
+                    bytes_per_cell=8, cap=None):
+                if not hit:
+                    tile_values = list(values)
+                    for a in shown:
+                        tile_values[a] = "all"
+                    window = {a: (t0, t1, 1) for a, (t0, t1) in zip(shown, tile)}
+                    # kept as read (float32 stays float32): only the clicked
+                    # series is turned into float with NaN
+                    data = read_responsive(lambda: get_slice_values(
+                        tile_values, variable, window=window))
+                    order = sorted((axis, *shown))
+                    size = {axis: steps, shown[0]: rows, shown[1]: cols}
+                    data = np.moveaxis(np.reshape(data, [size[a] for a in order]),
+                                       order.index(axis), 0)
+                    self._series_tile = (key, data)
+                series = self._series_tile[1][:, idx[0] - tile[0][0],
+                                              idx[1] - tile[1][0]]
+                return np.asarray(self._to_nan(series, get_miss(self, variable)),
+                                  dtype=float)
+        return np.asarray(self.slice_miss(values, variable), dtype=float).ravel()
 
     def _native_chunk(self, out):
         """``(data, (min, max))`` with missing cells at the dtype minimum, or

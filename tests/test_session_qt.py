@@ -1594,3 +1594,224 @@ def test_cli_help_uses_ncv_entrypoint():
                              capture_output=True, cwd=Path(__file__).parents[1])
     assert blocked.returncode == 0, blocked.stderr
     assert "examples:" in blocked.stdout
+
+
+def test_double_click_plots_cell_series_from_chunk(tmp_path, qt_app):
+    import ncv.ncvcommon as common
+    from ncv.ncvcontour import ContourPanel
+    from ncv.session import NcvSession
+
+    path = tmp_path / "cube.nc"
+    data = np.arange(5 * 200 * 300.0).reshape(5, 200, 300)
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("time", None)
+        ds.createDimension("y", 200)
+        ds.createDimension("x", 300)
+        t = ds.createVariable("time", "f8", ("time",))
+        t.units = "days since 2000-01-01"
+        t[:] = np.arange(5.0)
+        ds.createVariable("v", "f8", ("time", "y", "x"))[:] = data
+
+    real = common.memory_budget_cells
+    common.memory_budget_cells = lambda *a, **k: 2500      # 50 x 50 chunks
+    try:
+        session = NcvSession()
+        session.open([str(path)])
+        panel = ContourPanel(_panel_window(), session)
+        panel.comboBox_z.setCurrentText(
+            next(c for c in session.cols if c.startswith("v ")))
+        for i, value in enumerate(("0", "all", "all")):
+            panel.zd.set_value(i, value)
+        panel.checkBox_transposeZ.setChecked(False)
+        panel.scroll.hbar.setValue(250)                  # chunk away from 0
+        panel._reload_chunk()
+        assert panel._zwindow[1][0] > 0
+        reads = []
+        original = panel.redraw
+        panel.redraw = lambda *a, **k: (reads.append(1), original(*a, **k))
+
+        # beside the image, or on a missing cell: no window
+        panel._double_clicked(panel._xx.max() + 10, panel._yy[0])
+        panel._zz[0, 0] = np.nan
+        panel._double_clicked(panel._xx[0], panel._yy[0])
+        assert panel._series_win is None
+
+        for x, y in ((panel._xx[1], panel._yy[2]), (panel._xx[-1], panel._yy[-1]),
+                     (panel._xx[-1], panel._yy[-1])):    # last one repeats
+            panel._double_clicked(x, y)                  # x/y are indices here
+        items = panel._series_win.plot.plotItem.listDataItems()
+        assert len(items) == 2                           # overlaid, no repeat
+        j, i = int(panel._yy[-1]), int(panel._xx[-1])
+        np.testing.assert_array_equal(items[-1].getData()[1], data[:, j, i])
+        assert items[-1].name() == f"v @ x={i}, y={j} [y={j}, x={i}]"
+        assert items[-1].opts["symbol"] == "o"           # short: markers
+        assert reads == []                               # no panel redraw
+        session.close()
+    finally:
+        common.memory_budget_cells = real
+
+
+def test_new_window_opens_its_own_file(tmp_path, qt_app):
+    from ncv.app import NcvMainWindow
+    from ncv.session import NcvSession
+
+    first, second = tmp_path / "a.nc", tmp_path / "b.nc"
+    make_sample(first)
+    make_sample(second)
+    session = NcvSession()
+    session.open([str(first)])
+    window = NcvMainWindow(session)
+    window.create_secondary_window()
+    child = window._children[-1]
+    assert child.session is window.session               # same file at first
+    child.open_files([str(second)])
+    assert window.session.files == [str(first)]
+    assert child.session.files == [str(second)]
+    assert child.contour.session is child.session
+    for win in (child, window):
+        win.close()
+
+
+def test_long_cell_series_draws_fast(tmp_path, qt_app):
+    from ncv.ncvcontour import ContourPanel
+    from ncv.session import NcvSession
+
+    path = tmp_path / "long.nc"
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("time", None)
+        ds.createDimension("y", 2)
+        ds.createDimension("x", 2)
+        t = ds.createVariable("time", "f8", ("time",))
+        t.units = "hours since 2000-01-01"
+        t[:] = np.arange(5000.0)
+        ds.createVariable("v", "f4", ("time", "y", "x"))[:] = np.ones((5000, 2, 2))
+    session = NcvSession()
+    session.open([str(path)])
+    panel = ContourPanel(_panel_window(), session)
+    panel.comboBox_z.setCurrentText(
+        next(c for c in session.cols if c.startswith("v ")))
+    for i, value in enumerate(("0", "all", "all")):
+        panel.zd.set_value(i, value)
+    panel.checkBox_transposeZ.setChecked(False)
+    panel.redraw()
+    panel._double_clicked(panel._xx[0], panel._yy[0])
+    line = panel._series_win.plot.plotItem.listDataItems()[0]
+    assert line.opts["symbol"] is None                   # no per-point markers
+    assert line.opts["autoDownsample"] and line.opts["clipToView"]
+    assert panel._series_win.plot.plotItem.getAxis("bottom").labelText == "Date"
+    session.close()
+
+
+def test_map_double_click_only_on_grid_cells(tmp_path, qt_app):
+    panel, _window, session = make_map_panel(tmp_path / "map.nc", qt_app)
+    import cartopy.crs as ccrs
+
+    select_map_variable(panel, session, "temp")
+    panel.redraw()
+    click = lambda lon, lat: panel._double_clicked(
+        *panel.iproj.transform_point(lon, lat, ccrs.PlateCarree()))
+    click(90.0, 80.0)                                    # north of the grid
+    assert panel._series_win is None
+    click(90.0, 0.0)
+    line = panel._series_win.plot.plotItem.listDataItems()[0]
+    np.testing.assert_array_equal(line.getData()[1],
+                                  np.arange(48.0).reshape(4, 3, 4)[:, 1, 1])
+    assert line.name().startswith("temp @ 0.00°N, 90.00°E [")
+    session.close()
+
+
+def test_cell_contains_rejects_points_off_the_grid():
+    from ncv.ncvutils import cell_contains, nearest_map_cell
+
+    assert cell_contains(2.4, 0.0, [0.0, 1.0, 2.0], [0.0, 1.0], (0, 2))
+    assert not cell_contains(2.6, 0.0, [0.0, 1.0, 2.0], [0.0, 1.0], (0, 2))
+    lons = [0.0, 90.0, 180.0, 270.0]
+    assert cell_contains(-10.0, 0.0, lons, [0.0, 1.0], (0, 0))   # 350 wraps
+    # a grid rotated 45 degrees: its bounding-box corner is in no cell
+    i, j = np.mgrid[0:5, 0:5].astype(float)
+    lon, lat = 10.0 + (j - i), 50.0 + (i + j)
+    for point, inside in (((10.0, 54.0), True), ((6.0, 50.0), False)):
+        cell = nearest_map_cell(*point, lon, lat, lon.shape)
+        assert cell_contains(*point, lon, lat, cell) is inside
+
+
+def test_double_click_needs_cursor_box_and_reads_tile_once(tmp_path, qt_app, monkeypatch):
+    import ncv.ncvcommon as common
+    from ncv.ncvcontour import ContourPanel
+    from ncv.qt_compat import QtCore
+    from ncv.session import NcvSession
+
+    path = tmp_path / "hourly.nc"
+    data = np.arange(50 * 4 * 6.0).reshape(50, 4, 6)
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("time", None)
+        ds.createDimension("y", 4)
+        ds.createDimension("x", 6)
+        ds.createVariable("time", "f8", ("time",))[:] = np.arange(50.0)
+        ds.createVariable("v", "f4", ("time", "y", "x"),
+                          chunksizes=(1, 4, 6))[:] = data   # one chunk per step
+    session = NcvSession()
+    session.open([str(path)])
+    panel = ContourPanel(_panel_window(), session)
+    panel.comboBox_z.setCurrentText(
+        next(c for c in session.cols if c.startswith("v ")))
+    for i, value in enumerate(("0", "all", "all")):
+        panel.zd.set_value(i, value)
+    panel.checkBox_transposeZ.setChecked(False)
+    panel.redraw()
+
+    class DoubleClick:                                   # what the scene emits
+        def __init__(self, x, y):
+            self.pos = panel.item.vb.mapViewToScene(QtCore.QPointF(x, y))
+        def double(self):
+            return True
+        def scenePos(self):
+            return self.pos
+
+    click = lambda r, c: panel.plot.scene().sigMouseClicked.emit(
+        DoubleClick(panel._xx[c], panel._yy[r]))
+    panel.checkBox_cursor.setChecked(False)
+    click(1, 2)
+    assert panel._series_win is None                     # box unticked: off
+    panel.checkBox_cursor.setChecked(True)
+
+    reads = []
+    real = common.get_slice_values
+    monkeypatch.setattr(common, "get_slice_values",
+                        lambda *a, **k: (reads.append(1), real(*a, **k))[1])
+    click(1, 2)
+    click(3, 5)
+    lines = panel._series_win.plot.plotItem.listDataItems()
+    assert len(lines) == 2 and len(reads) == 1           # one tile read
+    np.testing.assert_array_equal(lines[0].yData, data[:, 1, 2])
+    np.testing.assert_array_equal(lines[1].yData, data[:, 3, 5])
+    panel._series_win.close()
+    qt_app.processEvents()
+    assert panel._series_tile is None                    # closing frees it
+    session.close()
+
+
+def test_color_scales():
+    from ncv.ncvcommon import BANDS, color_scale, scaled_colormap, set_palette_image
+    from ncv.qt_compat import pg
+
+    f32 = lambda *v: np.array(v, dtype=np.float32)
+    assert color_scale("Linear", 0, 1) is None
+    np.testing.assert_allclose(color_scale("Log", 1, 100)(f32(1, 10, 100)), [0, .5, 1])
+    ramp = np.linspace(0, 1, 101, dtype=np.float32)
+    for name in ("Low", "High"):
+        out = color_scale(name, 0, 1)(ramp.copy())
+        assert out[0] == 0 and abs(out[-1] - 1) < 1e-6 and np.all(np.diff(out) >= 0)
+    assert color_scale("Low", 0, 1)(f32(0.1))[0] > 0.1 > color_scale("High", 0, 1)(f32(0.1))[0]
+    assert len(np.unique(color_scale("Banded", 0, 1)(ramp.copy()))) == BANDS
+    skewed = np.random.default_rng(0).exponential(size=20000).astype(np.float32)
+    eq = color_scale("Equalised", 0, float(skewed.max()), skewed)(skewed.copy())
+    assert np.histogram(eq, bins=4, range=(0, 1))[0].min() > 4000   # ~uniform
+
+    image = pg.ImageItem()                               # missing stays 0
+    set_palette_image(image, f32(np.nan, 1, 100).reshape(1, 3),
+                      pg.colormap.get("viridis"), 1, 100,
+                      color_scale("Log", 1, 100))
+    assert list(image.image[0]) == [0, 1, 255]
+    assert isinstance(scaled_colormap(pg.colormap.get("viridis"),
+                                      color_scale("Banded", 0, 1), 0, 1), pg.ColorMap)

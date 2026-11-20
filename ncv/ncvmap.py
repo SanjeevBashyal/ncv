@@ -20,9 +20,12 @@ from .ncvcommon import (
     PlotPanel,
     ScrollableView,
     TimeControlMixin,
+    cell_double_click,
     color_levels,
+    color_scale,
     cursor_label,
     native_levels,
+    scaled_colormap,
     set_palette_image,
     float_or_none,
     load_ui,
@@ -37,7 +40,10 @@ from .ncvutils import (
     chunk_shape,
     overview_stride,
     cell_edges,
+    cell_contains,
+    cell_value,
     format_coord_map,
+    nearest_map_cell,
     selvar,
     set_axis_label,
     set_miss,
@@ -240,11 +246,13 @@ class MapPanel(TimeControlMixin, PlotPanel):
         self.plotLayout.addWidget(self.scroll, 1)
         cursor_label(self.plot, self.label_cursor, self._format_cursor,
                      self.checkBox_cursor)
+        cell_double_click(self.plot, self._double_clicked, self.checkBox_cursor)
         self._mesh_stride = 1
         self._rectilinear_cache = {}
         self._view_key = None
         self._native_levels = None
         self._palette = None
+        self._scale = None          # color_scale of the drawn data
         self._full_patch = False
         self._overlays = []
         self.data_item = None
@@ -289,6 +297,7 @@ class MapPanel(TimeControlMixin, PlotPanel):
         self.lond.changed.connect(self.spinned_lon)
         self.latd.changed.connect(self.spinned_lat)
         self.comboBox_cmap.currentIndexChanged.connect(self.selected_cmap)
+        self.comboBox_cscale.currentIndexChanged.connect(self.selected_cmap)
         for check in (self.checkBox_revCmap, self.checkBox_fullCoarse,
                       self.checkBox_global, self.checkBox_boundingBox,
                       self.checkBox_coast,
@@ -682,7 +691,7 @@ class MapPanel(TimeControlMixin, PlotPanel):
             # a uint8 palette image Qt scales at paint time: no re-render of
             # the whole patch on zoom (see set_palette_image)
             image = pg.ImageItem()
-            set_palette_image(image, vv, cmap, *levels)
+            set_palette_image(image, vv, cmap, *levels, self._scale)
             rect = QtCore.QRectF(
                 edges[0, 0], edges[0, 1],
                 edges[1, 0] - edges[0, 0], edges[1, 1] - edges[0, 1])
@@ -699,8 +708,9 @@ class MapPanel(TimeControlMixin, PlotPanel):
                 yy if yy.ndim == 2 else np.broadcast_to(yy[:, None], shape))
         pts = proj.transform_points(ccrs.PlateCarree(), cx, cy)
         mesh = pg.PColorMeshItem(
-            pts[:, :, 0], pts[:, :, 1], vv,
-            colorMap=cmap, levels=levels, enableAutoLevels=False)
+            pts[:, :, 0], pts[:, :, 1], self._mesh_values(vv),
+            colorMap=cmap, levels=levels if self._scale is None else (0, 1),
+            enableAutoLevels=False)
         self._add_overlay(mesh)
         return mesh
 
@@ -850,6 +860,8 @@ class MapPanel(TimeControlMixin, PlotPanel):
                   else native_levels(vv, vrange, vmin, vmax))
         cmap = self.selected_cmap_object(self.comboBox_cmap,
                                          self.checkBox_revCmap)
+        self._scale = color_scale(self.comboBox_cscale.currentText(),
+                                  *levels, vv)
         try:
             self.data_item = self._draw_data(
                 xx, yy, vv, self.iproj, cmap, levels)
@@ -857,7 +869,7 @@ class MapPanel(TimeControlMixin, PlotPanel):
             print("Map: lon, lat, var shapes do not match:",
                   np.shape(xx), np.shape(yy), vv.shape, exc)
             return
-        self.colorbar.setColorMap(cmap)
+        self.colorbar.setColorMap(scaled_colormap(cmap, self._scale, *levels))
         self.colorbar.setLevels(low=levels[0], high=levels[1])
         self.colorbar.setLabel("right", vlab)
         if not self._colorbar_added:
@@ -985,11 +997,46 @@ class MapPanel(TimeControlMixin, PlotPanel):
         self.ivv = vv
         if isinstance(self.data_item, pg.ImageItem):
             cmap, levels = self._palette
-            set_palette_image(self.data_item, vv, cmap, *levels)
+            set_palette_image(self.data_item, vv, cmap, *levels, self._scale)
         elif self.data_item is not None:
             # positional None keeps the geometry; setData(z=...) is not a
             # keyword and used to clear the whole mesh
-            self.data_item.setData(None, None, vv)
+            self.data_item.setData(None, None, self._mesh_values(vv))
+
+    def _mesh_values(self, vv):
+        """Mesh z: the values, or their colour positions 0..1 under a colour
+        scale (the mesh maps z linearly; ``ivv`` keeps the values)."""
+        return vv if self._scale is None else self._scale(
+            np.asarray(vv, dtype=np.float32).copy())
+
+    def _double_clicked(self, x, y):
+        """Add the series of the data cell under a double-click; a click off
+        the grid or on a missing cell does nothing."""
+        if self.iproj is None or self.ivv is None:
+            return
+        lon, lat = ccrs.PlateCarree().transform_point(x, y, self.iproj)
+        if not (np.isfinite(lon) and np.isfinite(lat)):
+            return
+        cell = nearest_map_cell(lon, lat, self.ixx, self.iyy, self.ivv.shape)
+        if (cell is None
+                or not cell_contains(lon, lat, self.ixx, self.iyy, cell)
+                or not np.isfinite(cell_value(self.ivv, cell))):
+            return
+        # label with the drawn cell's centre
+        clon, clat = ((self.ixx[cell], self.iyy[cell]) if np.ndim(self.ixx) > 1
+                      else (self.ixx[cell[1]], self.iyy[cell[0]]))
+        clon = (clon + 180.) % 360. - 180.
+        where = (f"{abs(clat):.2f}°{'N' if clat >= 0 else 'S'}, "
+                 f"{abs(clon):.2f}°{'E' if clon >= 0 else 'W'}")
+        # undo the display steps: mesh stride, cyclic column, shifted lon
+        row, col = (i * self._mesh_stride for i in cell)
+        ncols = np.shape(self._base_xx)[-1]
+        col %= ncols
+        if self.checkBox_shiftLongitude.isChecked():
+            col = (col - ncols // 2) % ncols
+        self._plot_cell_series(self.comboBox_variable.currentText(), self.vd,
+                               row, col, self.checkBox_transVariable.isChecked(),
+                               where)
 
     def _format_cursor(self, x, y):
         if self.iproj is None:

@@ -147,6 +147,14 @@ class NcvMainWindow(QtWidgets.QMainWindow):
             self.open_files(files, use_xarray)
 
     def open_files(self, files, use_xarray=False):
+        # a New Window shares its parent's session until it opens a file
+        if any(window is not self and window.session is self.session
+               for window in NcvMainWindow.instances):
+            # generation carries on: the Map caches per (generation, x, y)
+            self.session = NcvSession(miss=self.session.miss,
+                                      generation=self.session.generation)
+            for panel in (self.scatter, self.contour, self.map, self.matrix):
+                panel.session = self.session
         try:
             self.session.open(files, use_xarray=use_xarray)
         except Exception as exc:

@@ -9,11 +9,13 @@ from .dimensions import (
     resolve_selected_variable,
 )
 from .ncvcommon import DimensionControlRow, PlotPanel, ScrollableView
-from .ncvcommon import color_levels, cursor_label, load_ui
+from .ncvcommon import cell_double_click, color_levels, cursor_label, load_ui
 from .ncvcommon import native_levels, set_palette_image
+from .ncvcommon import color_scale, scaled_colormap
 from .ncvcommon import coordinate_variable, display_axes, read_axis
 from .ncvcommon import parse_limits, set_combo_items
-from .ncvutils import cell_edges, format_coord_contour
+from .ncvutils import cell_edges, cell_value, datetime_str
+from .ncvutils import format_coord_contour, nearest_contour_cell
 from .ncvutils import set_axis_label, vardim2var
 from .qt_compat import QtCore, QtWidgets, pg
 
@@ -44,6 +46,7 @@ class ContourPanel(PlotPanel):
         self.plotLayout.addWidget(self.scroll, 1)
         cursor_label(self.plot, self.label_cursor, self._format_cursor,
                      self.checkBox_cursor)
+        cell_double_click(self.plot, self._double_clicked, self.checkBox_cursor)
         self._xx = self._yy = self._zz = None
         self._xdate = self._ydate = False
 
@@ -66,6 +69,7 @@ class ContourPanel(PlotPanel):
         self.xd.changed.connect(self.spinned_x)
         self.yd.changed.connect(self.spinned_y)
         self.comboBox_cmap.currentIndexChanged.connect(self.selected_cmap)
+        self.comboBox_cscale.currentIndexChanged.connect(self.selected_cmap)
         for check in (self.checkBox_revCmap, self.checkBox_grid,
                       self.checkBox_fullCoarse):
             check.stateChanged.connect(self.checked)
@@ -249,12 +253,13 @@ class ContourPanel(PlotPanel):
         xedges, yedges = cell_edges(xx), cell_edges(yy)
         cmap = self.selected_cmap_object(self.comboBox_cmap,
                                          self.checkBox_revCmap)
-        set_palette_image(self.image, zz, cmap, *levels)
+        scale = color_scale(self.comboBox_cscale.currentText(), *levels, zz)
+        set_palette_image(self.image, zz, cmap, *levels, scale)
         rect = QtCore.QRectF(xedges[0], yedges[0],
                              xedges[-1] - xedges[0], yedges[-1] - yedges[0])
         self.image.setRect(rect)
         self.set_view_geometry(rect, transposed)
-        self.colorbar.setColorMap(cmap)
+        self.colorbar.setColorMap(scaled_colormap(cmap, scale, *levels))
         self.colorbar.setLevels(low=levels[0], high=levels[1])
         self.colorbar.setLabel("right", zlabel)
 
@@ -276,6 +281,23 @@ class ContourPanel(PlotPanel):
             self.initial_view()
         else:
             self._view_moved()
+
+    def _double_clicked(self, x, y):
+        """Add the series of the data cell under a double-click; a click
+        beside the image or on a missing cell does nothing."""
+        if self._zz is None:
+            return
+        cell = nearest_contour_cell(x, y, self._xx, self._yy)
+        if cell is None or not np.isfinite(cell_value(self._zz, cell)):
+            return
+        row, col = cell
+        z = self.comboBox_z.currentText()
+        transposed = self.checkBox_transposeZ.isChecked()
+        row_dim, col_dim = self._shown_dims(z, transposed)
+        show = lambda v, date: datetime_str(v) if date else f"{v:.6g}"
+        where = (f"{col_dim or 'x'}={show(self._xx[col], self._xdate)}, "
+                 f"{row_dim or 'y'}={show(self._yy[row], self._ydate)}")
+        self._plot_cell_series(z, self.zd, row, col, transposed, where)
 
     def _format_cursor(self, x, y):
         if self._zz is None:
