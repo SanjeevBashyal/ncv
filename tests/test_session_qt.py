@@ -1815,3 +1815,49 @@ def test_color_scales():
     assert list(image.image[0]) == [0, 1, 255]
     assert isinstance(scaled_colormap(pg.colormap.get("viridis"),
                                       color_scale("Banded", 0, 1), 0, 1), pg.ColorMap)
+
+
+def test_matrix_time_step_keeps_table_scroll(tmp_path, qt_app, monkeypatch):
+    import ncv.ncvcommon as common
+    from ncv.ncvmatrix import MatrixPanel
+    from ncv.session import NcvSession
+
+    path = tmp_path / "steps.nc"
+    data = np.arange(3 * 400 * 400.0).reshape(3, 400, 400)
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("time", None)
+        ds.createDimension("y", 400)
+        ds.createDimension("x", 400)
+        t = ds.createVariable("time", "f8", ("time",))
+        t.units = "days since 2000-01-01"
+        t[:] = [0.0, 1.0, 2.0]
+        ds.createVariable("v", "f8", ("time", "y", "x"))[:] = data
+    monkeypatch.setattr(common, "memory_budget_cells", lambda *a, **k: 10000)
+    session = NcvSession()
+    session.open([str(path)])
+    panel = MatrixPanel(_panel_window(), session)
+    panel.resize(900, 700)
+    panel.show()
+    qt_app.processEvents()
+    panel.comboBox_z.setCurrentText(next(c for c in session.cols if c.startswith("v ")))
+    qt_app.processEvents()
+    table = panel.tableView_showMatrix
+    inner_v, inner_h = table.verticalScrollBar(), table.horizontalScrollBar()
+    inner_v.setValue(30)
+    inner_h.setValue(20)
+    qt_app.processEvents()
+
+    panel.horizontalSlider_timeStep.setValue(1)          # step the time
+    qt_app.processEvents()
+    assert panel.zd.values()[0] == "1"
+    assert (inner_v.value(), inner_h.value()) == (30, 20)   # stayed put
+    assert table.rowAt(0) == 30
+    row, col = table.rowAt(0), table.columnAt(0)
+    assert float(panel.model.data(panel.model.index(row, col))) == data[1, row, col]
+
+    from PyQt6.QtTest import QTest
+    panel.scroll.hbar.setValue(150)                      # a new chunk
+    QTest.qWait(60)                                      # the bar's debounce
+    assert panel._zwindow[1][0] == 150
+    assert inner_v.value() == 0 and inner_h.value() == 0
+    session.close()

@@ -125,15 +125,25 @@ class _ArrayTableModel(QtCore.QAbstractTableModel):
 
     def set_table(self, values=None, xheaders=None, yheaders=None,
                   row_index=None, col_index=None, missing=None):
-        self.beginResetModel()
+        values = np.empty((0, 0)) if values is None else np.asarray(values)
+        # same shape (a time step): repaint in place - a model reset
+        # re-lays out the view and loses its scroll position
+        same = values.size > 0 and values.shape == self.values.shape
+        if not same:
+            self.beginResetModel()
         self.missing = missing
-        self.values = (np.empty((0, 0)) if values is None
-                       else np.asarray(values))
+        self.values = values
         self.xheaders = xheaders
         self.yheaders = yheaders
         self.row_index = row_index
         self.col_index = col_index
-        self.endResetModel()
+        if not same:
+            self.endResetModel()
+            return
+        rows, cols = values.shape
+        self.dataChanged.emit(self.index(0, 0), self.index(rows - 1, cols - 1))
+        self.headerDataChanged.emit(QtCore.Qt.Orientation.Vertical, 0, rows - 1)
+        self.headerDataChanged.emit(QtCore.Qt.Orientation.Horizontal, 0, cols - 1)
 
     def set_options(self, data_format, header_format, flip_vertical,
                     flip_horizontal, show_indices):
@@ -161,6 +171,7 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
 
         self.model = _ArrayTableModel(self)
         self.tableView_showMatrix.setModel(self.model)
+        self._table_key = None      # (chunk window, shape) the table shows
         # runtime-only: the scroll bars live in a grid around the table, which
         # Designer cannot express. Everything static (splitter, scroll-bar
         # policies, hidden header, stretch, size policies) is in the .ui.
@@ -471,9 +482,13 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
         self.model.set_table(array, xheaders, yheaders, row_index, col_index,
                              missing)
         self._size_bars()
-        table = self.tableView_showMatrix          # a new chunk starts top-left
-        table.verticalScrollBar().setValue(0)
-        table.horizontalScrollBar().setValue(0)
+        # a new chunk or shape starts top-left; a time step keeps the place
+        key = (self._zwindow, array.shape)
+        if key != self._table_key:
+            self._table_key = key
+            table = self.tableView_showMatrix
+            table.verticalScrollBar().setValue(0)
+            table.horizontalScrollBar().setValue(0)
         if update_statistics:
             self._refresh_statistics(raw, native_range)
         self._show_variable_metadata(z)
