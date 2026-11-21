@@ -67,6 +67,7 @@ History
 
 """
 from math import isfinite
+import warnings
 import numpy as np
 try:
     import cartopy.crs as ccrs
@@ -83,7 +84,9 @@ __all__ = ['DIMMETHODS',
            'list_intersection', 'parse_entry',
            'selvar', 'set_axis_label', 'set_miss',
            'spinbox_values', 'vardim2var',
-           'xzip_dim_name_length', 'zip_dim_name_length']
+           'xzip_dim_name_length', 'zip_dim_name_length',
+           'RESOLUTIONS', 'STATISTICS', 'coarser_resolutions',
+           'period_starts', 'period_label', 'nanmode', 'aggregate_series']
 
 
 DIMMETHODS = ('mean', 'std', 'min', 'max', 'ptp', 'sum', 'median', 'var')
@@ -1144,3 +1147,87 @@ def zip_dim_name_length(ncvar):
     for i in range(ncvar.ndim):
         out.append(f'{ncvar.dimensions[i]}={ncvar.shape[i]}')
     return out
+
+
+# ---- temporal aggregation (toolkit-neutral, vectorised) -------------------
+
+RESOLUTIONS = {"Hourly": "h", "Daily": "D", "Monthly": "M", "Annual": "Y",
+               "Entire period": None}
+# shortest length of each resolution, to compare with the data's time step
+_RESOLUTION_SECONDS = {"Hourly": 3600, "Daily": 86400, "Monthly": 28 * 86400,
+                       "Annual": 365 * 86400}
+STATISTICS = ("Sum", "Mean", "Mode", "Median", "Minimum", "Maximum")
+
+
+def coarser_resolutions(times):
+    """Resolutions coarser than the median step of datetime64 ``times``
+    (aggregating to the data's own step would change nothing)."""
+    times = np.asarray(times)
+    if times.size < 2:
+        return []
+    if not np.issubdtype(times.dtype, np.datetime64):
+        return ["Entire period"]
+    step = np.median(np.diff(times).astype("timedelta64[s]").astype(float))
+    return [name for name, seconds in _RESOLUTION_SECONDS.items()
+            if seconds > step] + ["Entire period"]
+
+
+def period_starts(times, resolution):
+    """Start index of each ``resolution`` period in sorted datetime64
+    ``times`` - every period is one contiguous slice - or None."""
+    if resolution not in RESOLUTIONS or times is None or len(times) == 0:
+        return None
+    unit = RESOLUTIONS[resolution]
+    if unit is None:
+        return np.zeros(1, dtype=np.intp)
+    labels = np.asarray(times).astype(f"datetime64[{unit}]")
+    return np.r_[0, np.flatnonzero(labels[1:] != labels[:-1]) + 1]
+
+
+def period_label(time, resolution):
+    """``2001-03`` for a Monthly period starting at ``time``, etc."""
+    unit = RESOLUTIONS.get(resolution)
+    if unit is None:
+        return "all"
+    return str(np.datetime64(time, unit)).replace("T", " ")
+
+
+def nanmode(a, axis=0):
+    """Most frequent value along ``axis``, ignoring NaN (ties: the smallest;
+    NaN where there is no value)."""
+    s = np.sort(np.moveaxis(np.asarray(a, dtype=float), axis, 0), axis=0)
+    n = s.shape[0]
+    new_run = np.ones(s.shape, dtype=bool)
+    new_run[1:] = s[1:] != s[:-1]
+    index = np.arange(n).reshape((n,) + (1,) * (s.ndim - 1))
+    start = np.maximum.accumulate(np.where(new_run, index, 0), axis=0)
+    length = index - start + 1             # length of the run so far
+    length[np.isnan(s)] = 0
+    best = np.argmax(length, axis=0)        # first longest run: smallest value
+    return np.take_along_axis(s, best[np.newaxis], axis=0)[0]
+
+
+def aggregate_series(y, starts, stat):
+    """``stat`` of each period of ``y`` along axis 0 (periods start at
+    ``starts``), ignoring NaN; NaN for a period without values."""
+    y = np.asarray(y, dtype=float)
+    if stat in ("Sum", "Mean"):
+        valid = np.isfinite(y)
+        total = np.add.reduceat(np.where(valid, y, 0.0), starts, axis=0)
+        count = np.add.reduceat(valid.astype(np.int64), starts, axis=0)
+        out = total if stat == "Sum" else total / np.maximum(count, 1)
+        out[count == 0] = np.nan
+        return out
+    if stat in ("Minimum", "Maximum"):
+        return (np.fmin if stat == "Minimum" else np.fmax).reduceat(
+            y, starts, axis=0)
+    reduce = nanmode if stat == "Mode" else np.nanmedian
+    stops = np.r_[starts[1:], y.shape[0]]
+    lengths = stops - starts
+    with warnings.catch_warnings():         # all-NaN periods give NaN
+        warnings.simplefilter("ignore", RuntimeWarning)
+        if np.all(lengths == lengths[0]):   # e.g. hourly -> daily: one call
+            return reduce(y.reshape((starts.size, lengths[0]) + y.shape[1:]),
+                          axis=1)
+        return np.stack([reduce(y[a:b], axis=0)
+                         for a, b in zip(starts, stops)])

@@ -13,10 +13,16 @@ from .dimensions import dimension_values, resolve_selected_variable
 from .ncvmethods import get_miss
 from .ncvutils import (
     DIMMETHODS,
+    RESOLUTIONS,
+    STATISTICS,
+    aggregate_series,
     chunk_shape,
+    coarser_resolutions,
     get_slice_values,
     overview_stride,
     parse_entry,
+    period_label,
+    period_starts,
     selvar,
     set_axis_label,
     set_miss,
@@ -376,6 +382,37 @@ def cursor_label(plot_widget, label, formatter, checkbox):
     return label
 
 
+def resolution_starts(combo, times):
+    """Period starts of ``times`` for the resolution chosen in ``combo``, or
+    None; only resolutions coarser than the data's step stay selectable."""
+    allowed = coarser_resolutions(times)
+    for i in range(combo.count()):
+        text = combo.itemText(i)
+        combo.model().item(i).setEnabled(text == "None" or text in allowed)
+    resolution = combo.currentText()
+    return period_starts(times, resolution) if resolution in allowed else None
+
+
+def is_discrete(variable):
+    """Integer data that is not packed (no scale_factor / add_offset):
+    classes or counts, where a mode means something."""
+    attrs = getattr(variable, "attrs", None)
+    if attrs is None:
+        attrs = getattr(variable, "ncattrs", lambda: [])()
+    return (np.dtype(variable.dtype).kind in "iub"
+            and not {"scale_factor", "add_offset"} & set(attrs))
+
+
+def allow_mode(combo, discrete):
+    """Mode only for discrete data: continuous values are almost all unique,
+    so their mode would just be the period's minimum."""
+    combo.model().item(combo.findText("Mode")).setEnabled(discrete)
+    if not discrete and combo.currentText() == "Mode":
+        blocked = combo.blockSignals(True)
+        combo.setCurrentText("Mean")
+        combo.blockSignals(blocked)
+
+
 def cell_double_click(plot_widget, callback, checkbox):
     """Call ``callback(x, y)`` with the view coordinates of a double-click,
     only while ``checkbox`` (the cursor read-out box) is ticked."""
@@ -593,6 +630,22 @@ class TimeControlMixin:
         self.pushButton_runForward.clicked.connect(self.nrun_t)
         self.pushButton_nextTime.clicked.connect(self.next_t)
         self.pushButton_lastTime.clicked.connect(self.last_t)
+        # temporal aggregation: the time controls then step through periods
+        self._periods = None    # each period's first step + the end, or None
+        self.comboBox_tres.currentIndexChanged.connect(self._temporal_changed)
+        self.comboBox_tstat.currentIndexChanged.connect(self._temporal_changed)
+
+    def _temporal_changed(self):
+        self.set_unlim(self._time_variable_combo.currentText())
+        self.set_tstep(self._current_time_index())  # the period of the step
+        self.update_frame(True)
+
+    def _time_periods(self, time, count):
+        """Period starts for the chosen resolution, or None; only the
+        resolutions coarser than the data's step stay selectable."""
+        times = np.asarray(time.values if self.usex else time)[:count]
+        starts = resolution_starts(self.comboBox_tres, times)
+        return None if starts is None else np.r_[starts, times.size]  # + end
 
     def first_t(self):
         self._show_frame(0)
@@ -657,20 +710,32 @@ class TimeControlMixin:
         self.set_tstep(int(step))
         self.update_frame(True)
 
+    def _time_value(self, axis):
+        values = self._time_dimension_row.values()
+        return values[axis] if 0 <= axis < len(values) else ""
+
+    def _raw_time_index(self):
+        """The time selector's step (a raw index, never a period)."""
+        try:
+            return int(self._time_value(self.iunlim))
+        except ValueError:
+            return 0
+
     def _current_time_index(self):
+        """The frame shown: a time step, or a period while aggregating."""
         if self.iunlim < 0 or self.nunlim <= 0:
             return 0
-        try:
-            value = int(self._time_dimension_row.values()[self.iunlim])
-        except (ValueError, IndexError):
-            return 0
+        value = self._raw_time_index()
+        if self._periods is not None:
+            value = int(np.searchsorted(self._periods, value, side="right")) - 1
         return min(max(value, 0), self.nunlim - 1)
 
     def set_tstep(self, it):
         if self.iunlim < 0 or self.nunlim <= 0:
             return
         it = min(max(int(it), 0), self.nunlim - 1)
-        self._time_dimension_row.set_value(self.iunlim, it)
+        raw = int(self._periods[it]) if self._periods is not None else it
+        self._time_dimension_row.set_value(self.iunlim, raw)
         blocked = self.horizontalSlider_timeStep.blockSignals(True)
         self.horizontalSlider_timeStep.setValue(it)
         self.horizontalSlider_timeStep.blockSignals(blocked)
@@ -678,8 +743,10 @@ class TimeControlMixin:
         if details is None:
             return
         _variable, time, _axis, _count = details
-        value = time.values[it] if self.usex else time[it]
-        if not self.usex:
+        value = time.values[raw] if self.usex else time[raw]
+        if self._periods is not None:
+            value = period_label(value, self.comboBox_tres.currentText())
+        elif not self.usex:
             try:
                 value = np.around(value, 4)
             except TypeError:
@@ -688,11 +755,20 @@ class TimeControlMixin:
 
     def set_unlim(self, vardim):
         details = self._time_details(vardim)
+        self._periods = None
+        values = self._time_dimension_row.values()
+        if (details is not None and not str(self._time_value(details[2])).isdigit()
+                and sum(str(v) == "all" for v in values) >= 2):
+            details = None      # time is an axis of the 2-D view: left alone
         if details is None:
             self.iunlim = -1
             self.nunlim = 0
         else:
-            _variable, _time, self.iunlim, self.nunlim = details
+            variable, time, self.iunlim, count = details
+            allow_mode(self.comboBox_tstat, is_discrete(variable))
+            self._periods = self._time_periods(time, count)
+            self.nunlim = (count if self._periods is None
+                           else self._periods.size - 1)
         self._sync_time_controls()
 
     def _time_details(self, vardim):
@@ -755,6 +831,10 @@ class TimeControlMixin:
 class PlotPanel(QtWidgets.QWidget):
     """Common behavior for Qt plotting panels."""
 
+    # set by TimeControlMixin on panels with time controls
+    iunlim = -1
+    _periods = None
+
     def __init__(self, window, session: NcvSession, name: str):
         super().__init__(window)
         self.window = window
@@ -765,6 +845,7 @@ class PlotPanel(QtWidgets.QWidget):
         self._chunk_notified = None
         self._series_win = None
         self._series_tile = None
+        self._agg_cache = None      # (key, aggregated frame), see read_values
         self._copy_session()
 
     def _copy_session(self):
@@ -810,19 +891,19 @@ class PlotPanel(QtWidgets.QWidget):
         return cmap
 
     def slice_miss(self, dim_controls: DimensionControlRow, variable,
-                   window=None, native=False):
+                   window=None, native=False, aggregate=False):
         """Read the selection with missing values removed.
 
         Normally returns a float array with NaN where data is missing.  With
         ``native`` an unscaled signed-integer chunk is kept in its own dtype
         instead - no float copy - and ``(data, (min, max))`` is returned, with
         missing cells set to the dtype minimum (see ``set_palette_image``).
+        ``aggregate``: see ``read_values``.
         """
         values = (list(dim_controls) if isinstance(dim_controls, list)
                   else dim_controls.values())
         values.extend(["0"] * max(0, variable.ndim - len(values)))
-        out = read_responsive(
-            lambda: get_slice_values(values, variable, window=window))
+        out = self.read_values(values, variable, window, aggregate)
         if out.ndim > 1:
             out = out.squeeze()
         if native and np.issubdtype(out.dtype, np.signedinteger) and out.ndim == 2:
@@ -830,6 +911,98 @@ class PlotPanel(QtWidgets.QWidget):
             if kept is not None:
                 return kept
         return self._to_nan(out, get_miss(self, variable))
+
+    def read_values(self, values, variable, window=None, aggregate=False):
+        """``get_slice_values`` on the worker thread.  With ``aggregate`` and a
+        temporal resolution chosen (``TimeControlMixin``), the statistic of
+        the current period replaces its single time step - the time axis
+        keeps length 1, as a single step's read does."""
+        axis = self.iunlim
+        if not (aggregate and self._periods is not None
+                and 0 <= axis < len(values) and str(values[axis]).isdigit()):
+            return read_responsive(
+                lambda: get_slice_values(values, variable, window=window))
+        k = self._current_time_index()
+        p0, p1 = int(self._periods[k]), int(self._periods[k + 1])
+        stat = self.comboBox_tstat.currentText()
+        # one frame cached: colour, limit and repeated redraws reuse it
+        key = (self.session.generation, getattr(variable, "name", None),
+               variable.shape, tuple(values),
+               tuple(sorted((window or {}).items())), p0, p1, stat)
+        if self._agg_cache is None or self._agg_cache[0] != key:
+            self._agg_cache = (key, self._aggregate(
+                values, variable, window, axis, p0, p1, stat))
+        return self._agg_cache[1]
+
+    def _aggregate(self, values, variable, window, axis, p0, p1, stat):
+        """``stat`` over steps ``[p0, p1)`` of ``axis``, reading contiguous
+        time hyperslabs (netCDF pays per chunk decompressed, so no chunk is
+        read twice) with memory bounded by ``memory_budget_cells``."""
+        values = list(values)
+        values[axis] = "all"
+        window = dict(window or {})
+        miss = get_miss(self, variable)
+        reduced = [str(v) in DIMMETHODS for v in values]
+        taxis = axis - sum(reduced[:axis])      # time's place in a read
+        cells, rows_axis = 1, None              # values per step; a split axis
+        for a, v in enumerate(values):
+            if a != axis and (v == "all" or reduced[a]):
+                start, stop, step = window.get(a, (0, variable.shape[a], 1))
+                cells *= len(range(start, min(stop, variable.shape[a]), step))
+                if v == "all" and rows_axis is None:
+                    rows_axis = a
+
+        def read():
+            out = read_responsive(
+                lambda: get_slice_values(values, variable, window=window))
+            return np.moveaxis(np.asarray(self._to_nan(out, miss), dtype=float),
+                               taxis, 0)
+
+        if stat in ("Sum", "Mean", "Minimum", "Maximum"):
+            # stream whole time chunks; memory stays at one block
+            tchunk = (chunk_shape(variable, (axis,)) or (1,))[0]
+            block = max(1, memory_budget_cells() // max(cells, 1))
+            block = max(tchunk, block // tchunk * tchunk)
+            out = count = None
+            for t0 in range(p0, p1, block):
+                window[axis] = (t0, min(t0 + block, p1), 1)
+                part = read()
+                if stat in ("Sum", "Mean"):
+                    valid = np.isfinite(part)
+                    total = np.where(valid, part, 0.0).sum(axis=0)
+                    n = valid.sum(axis=0)
+                    out = total if out is None else out + total
+                    count = n if count is None else count + n
+                else:
+                    pick = np.fmin if stat == "Minimum" else np.fmax
+                    m = pick.reduce(part, axis=0)
+                    out = m if out is None else pick(out, m)
+            if count is not None:
+                if stat == "Mean":
+                    out = out / np.maximum(count, 1)
+                out[count == 0] = np.nan
+            return np.expand_dims(out, taxis)
+
+        # Median, Mode need the whole period: split rows if it is too big
+        window[axis] = (p0, p1, 1)
+        steps = p1 - p0
+        budget = memory_budget_cells(bytes_per_cell=48, cap=None)
+        whole = np.zeros(1, dtype=np.intp)
+        if rows_axis is None or steps * cells <= budget:
+            return np.expand_dims(aggregate_series(read(), whole, stat)[0], taxis)
+        start, stop, step = window.get(rows_axis, (0, variable.shape[rows_axis], 1))
+        nrows = len(range(start, min(stop, variable.shape[rows_axis]), step))
+        unit = max(1, (chunk_shape(variable, (rows_axis,)) or (1,))[0] // step)
+        k = max(1, budget // max(steps * (cells // nrows), 1))
+        k = max(unit, k // unit * unit)      # whole chunks: none read twice
+        parts = []
+        for i in range(0, nrows, k):
+            window[rows_axis] = (start + i * step,
+                                 min(stop, start + (i + k) * step), step)
+            parts.append(aggregate_series(read(), whole, stat)[0])
+        rpos = rows_axis - sum(reduced[:rows_axis])
+        rpos -= taxis < rpos                 # the time axis is reduced away
+        return np.expand_dims(np.concatenate(parts, axis=rpos), taxis)
 
     def _to_nan(self, out, miss):
         """Float copy of a read with NaN where missing."""
@@ -920,11 +1093,33 @@ class PlotPanel(QtWidgets.QWidget):
         # 1e6-step series): only short series get them
         markers = ({"symbol": "o", "symbolSize": 5, "symbolBrush": color}
                    if y.size <= 2000 else {})
-        item.plot(x, y, pen=color, connect="finite", name=label, **markers)
+        line = item.plot(x, y, pen=color, connect="finite", name=label,
+                         **markers)
+        line.raw = (x, y)       # the dialog's aggregation works from these
+        line.discrete = is_discrete(variable)
+        self._aggregate_lines(win)
         win.ylabels.add(set_axis_label(variable))
         item.setLabel("left", next(iter(win.ylabels))
                       if len(win.ylabels) == 1 else "")
         item.setLabel("bottom", xlabel)
+
+    def _aggregate_lines(self, win):
+        """Show every line of the series dialog aggregated as its combos say,
+        from the raw series kept on the line: no read (~16 ms per 244k)."""
+        dates = isinstance(win.plot.plotItem.getAxis("bottom"), pg.DateAxisItem)
+        for combo in (win.tres, win.tstat):
+            combo.setEnabled(dates)
+        lines = win.plot.plotItem.listDataItems()
+        allow_mode(win.tstat, all(line.discrete for line in lines))
+        for line in lines:
+            x, y = line.raw
+            starts = (resolution_starts(
+                win.tres, x.astype(np.int64).astype("datetime64[s]"))
+                if dates else None)
+            if starts is not None:
+                x, y = x[starts], aggregate_series(
+                    y, starts, win.tstat.currentText())
+            line.setData(x, y)
 
     def _series_window(self):
         """This panel's series dialog, created on first use and shown."""
@@ -940,7 +1135,27 @@ class PlotPanel(QtWidgets.QWidget):
             win.plot.setDownsampling(auto=True, mode="peak")
             win.plot.setClipToView(True)
             win.ylabels = set()
-            QtWidgets.QVBoxLayout(win).addWidget(win.plot)
+            # temporal aggregation of the lines (combos made in code: the
+            # dialog has no form)
+            win.tres, win.tstat = QtWidgets.QComboBox(), QtWidgets.QComboBox()
+            win.tres.addItems(["None", *RESOLUTIONS])
+            win.tstat.addItems(STATISTICS)
+            win.tstat.setCurrentText("Mean")
+            win.tres.setToolTip("Temporal resolution: each line's statistic "
+                                "per period (only periods longer than the "
+                                "data's time step)")
+            win.tstat.setToolTip("Statistic over each period's time steps")
+            for combo in (win.tres, win.tstat):
+                combo.currentIndexChanged.connect(
+                    lambda _i: self._aggregate_lines(win))
+            bar = QtWidgets.QHBoxLayout()
+            bar.addWidget(QtWidgets.QLabel("aggregate"))
+            bar.addWidget(win.tres)
+            bar.addWidget(win.tstat)
+            bar.addStretch(1)
+            layout = QtWidgets.QVBoxLayout(win)
+            layout.addLayout(bar)
+            layout.addWidget(win.plot)
             def forget(*_):             # closing frees the cached tile too
                 self._series_win = self._series_tile = None
             win.destroyed.connect(forget)
@@ -1016,11 +1231,13 @@ class PlotPanel(QtWidgets.QWidget):
         np.copyto(data, sentinel, where=mask)
         return data, (low, high)
 
-    def _series(self, vardim, dim_controls, window=None, native=False):
+    def _series(self, vardim, dim_controls, window=None, native=False,
+                aggregate=False):
         """Return ``(values, label, is_datetime, native_range)``.
 
         ``native_range`` is the valid min/max when ``native`` kept an integer
         chunk in its own dtype, else None and ``values`` is float.
+        ``aggregate``: see ``read_values``.
         """
         group, name = vardim2var(vardim, self.groups)
         tname = self.tname if self.usex else self.tname[group]
@@ -1030,7 +1247,8 @@ class PlotPanel(QtWidgets.QWidget):
         else:
             values = selvar(self, name)
             label = set_axis_label(values)
-        out = self.slice_miss(dim_controls, values, window=window, native=native)
+        out = self.slice_miss(dim_controls, values, window=window,
+                              native=native, aggregate=aggregate)
         if isinstance(out, tuple):
             return out[0], label, False, out[1]
         values, is_date = to_plot_values(out)

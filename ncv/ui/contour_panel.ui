@@ -79,6 +79,26 @@
        </property>
       </spacer>
      </item>
+     <item>
+      <widget class="QLabel" name="label_time">
+       <property name="text">
+        <string>Time:</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_timeValue">
+       <property name="minimumSize">
+        <size>
+         <width>200</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+      </widget>
+     </item>
     </layout>
    </item>
    <item>
@@ -340,6 +360,263 @@
             <number>0</number>
            </property>
           </layout>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_timeControls">
+        <item>
+         <widget class="QLabel" name="label_step">
+          <property name="text">
+           <string>Time</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSlider" name="horizontalSlider_timeStep">
+          <property name="maximum">
+           <number>1</number>
+          </property>
+          <property name="orientation">
+           <enum>Qt::Orientation::Horizontal</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="pushButton_firstTime">
+          <property name="minimumSize">
+           <size>
+            <width>38</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>38</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>|&lt;&lt;</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="pushButton_prevTime">
+          <property name="minimumSize">
+           <size>
+            <width>38</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>38</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>|&lt;</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="pushButton_runBackward">
+          <property name="minimumSize">
+           <size>
+            <width>38</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>38</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>&lt;</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="pushButton_runForward">
+          <property name="minimumSize">
+           <size>
+            <width>38</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>38</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>&gt;</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="pushButton_nextTime">
+          <property name="minimumSize">
+           <size>
+            <width>38</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>38</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>&gt;|</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="pushButton_lastTime">
+          <property name="minimumSize">
+           <size>
+            <width>38</width>
+            <height>0</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>38</width>
+            <height>16777215</height>
+           </size>
+          </property>
+          <property name="text">
+           <string>&gt;&gt;|</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_repeat">
+          <property name="text">
+           <string>repeat</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="comboBox_repeat">
+          <property name="currentIndex">
+           <number>1</number>
+          </property>
+          <property name="sizeAdjustPolicy">
+           <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+          </property>
+          <item>
+           <property name="text">
+            <string>once</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>repeat</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>reflect</string>
+           </property>
+          </item>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="label_aggregate">
+          <property name="text">
+           <string>aggregate</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="comboBox_tres">
+          <property name="toolTip">
+           <string>Temporal resolution: show each period's statistic over time instead of single time steps. Only periods longer than the data's time step can be chosen.</string>
+          </property>
+          <property name="sizeAdjustPolicy">
+           <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+          </property>
+          <item>
+           <property name="text">
+            <string>None</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Hourly</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Daily</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Monthly</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Annual</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Entire period</string>
+           </property>
+          </item>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="comboBox_tstat">
+          <property name="toolTip">
+           <string>Statistic over each period's time steps (missing values are skipped)</string>
+          </property>
+          <property name="currentIndex">
+           <number>1</number>
+          </property>
+          <property name="sizeAdjustPolicy">
+           <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+          </property>
+          <item>
+           <property name="text">
+            <string>Sum</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Mean</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Mode</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Median</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Minimum</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Maximum</string>
+           </property>
+          </item>
          </widget>
         </item>
        </layout>

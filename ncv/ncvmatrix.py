@@ -172,6 +172,7 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
         self.model = _ArrayTableModel(self)
         self.tableView_showMatrix.setModel(self.model)
         self._table_key = None      # (chunk window, shape) the table shows
+        self._follow_center = None  # a cell the next chunk centres on
         # runtime-only: the scroll bars live in a grid around the table, which
         # Designer cannot express. Everything static (splitter, scroll-bar
         # policies, hidden header, stretch, size policies) is in the .ui.
@@ -317,6 +318,36 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
         self.set_tstep(0)
         self.redraw()
 
+    def follow(self, vardim, values, cell, tres, tstat):
+        """Show what the Map shows - variable, dimension selections, time step
+        and aggregation - in one read, with the chunk centred on ``cell``
+        (indices of the two shown axes, variable order) and that cell
+        scrolled to the middle of the table."""
+        for combo, text in ((self.comboBox_z, vardim),
+                            (self.comboBox_tres, tres),
+                            (self.comboBox_tstat, tstat)):
+            blocked = combo.blockSignals(True)
+            combo.setCurrentText(text)
+            combo.blockSignals(blocked)
+        self.zd.set_specs(dimension_specs(self, vardim, "var"))
+        for axis, value in enumerate(values):
+            self.zd.set_value(axis, value)
+        self.set_unlim(vardim)
+        self.set_tstep(self._current_time_index())
+        self._follow_center = cell
+        self.redraw()
+        model = self.model
+        if model.row_index is None or model.col_index is None:
+            return
+        i, j = cell[::-1] if self.checkBox_transVariable.isChecked() else cell
+        row = model._source_row(int(np.abs(model.row_index - i).argmin()))
+        col = model._source_column(int(np.abs(model.col_index - j).argmin()))
+        index = model.index(row, col)
+        table = self.tableView_showMatrix
+        # after the view has laid out the new table
+        QtCore.QTimer.singleShot(0, lambda: table.scrollTo(
+            index, QtWidgets.QAbstractItemView.ScrollHint.PositionAtCenter))
+
     def selected_x(self):
         if self._updating:
             return
@@ -336,16 +367,13 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
         self.redraw()
 
     def spinned_z(self):
-        if self.iunlim >= 0:
-            try:
-                self.set_tstep(int(self.zd.values()[self.iunlim]))
-            except (ValueError, IndexError):
-                pass
+        if self.iunlim >= 0:    # the step's frame (its period while aggregating)
+            self.set_tstep(self._current_time_index())
         self.redraw()
 
     def set_tstep(self, index):
         super().set_tstep(index)
-        current = self._current_time_index()
+        current = self._raw_time_index()
         for combo, dimensions in (
             (self.comboBox_x, self.xd),
             (self.comboBox_y, self.yd),
@@ -394,8 +422,9 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
         else:
             values = dimensions.values()
             values.extend(["0"] * max(0, source.ndim - len(values)))
-            out = read_responsive(
-                lambda: get_slice_values(values, source, window=window))
+            # the shown variable (native) follows the temporal aggregation
+            out = self.read_values(values, source, window,
+                                   aggregate=native and not synthetic_time)
         if native and not synthetic_time:
             chunk = np.ma.asanyarray(out).squeeze()
             if np.issubdtype(chunk.dtype, np.signedinteger) and chunk.ndim == 2:
@@ -436,7 +465,9 @@ class MatrixPanel(TimeControlMixin, PlotPanel):
         r, c = self.scroll.offsets()
         window = self.scroll_window(
             z, self.zd,
-            offsets=(c, r) if self.checkBox_transVariable.isChecked() else (r, c))
+            offsets=(c, r) if self.checkBox_transVariable.isChecked() else (r, c),
+            center=self._follow_center)     # set by follow() for one read
+        self._follow_center = None
         try:
             variable, raw, native_range = self._selected_values(
                 z, self.zd, window=window, native=True)

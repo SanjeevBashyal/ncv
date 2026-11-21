@@ -24,6 +24,11 @@ without arguments so that files can be opened from the interface.
   - Contour
   - Map
   - Matrix and metadata
+- Temporal aggregation: sum, mean, mode, median, minimum or maximum per hour,
+  day, month, year or the entire period.
+- Double-click a Contour or Map cell to plot its time series.
+- Colour scales: linear, log, low/high stretch, banded and equalised.
+- The Matrix can follow the Map's variable, time and position.
 - New windows can share the currently opened dataset.
 - The graphical interface is maintained as editable Qt Designer forms.
 
@@ -187,9 +192,8 @@ Select or reduce enough dimensions for the requested display. Scatter data
 must reduce to compatible one-dimensional arrays. Contour, Map, and Matrix
 data should have no more than two displayed dimensions.
 
-The **New Window** button opens another viewer backed by the same session.
-Opening a new file in one of those windows refreshes all windows sharing that
-session.
+**File > New Window** opens another viewer showing the same dataset. Opening
+a file in either window changes only that window; the other keeps its file.
 
 ## Scatter/Line tab
 
@@ -219,6 +223,10 @@ None, 100
 `None` enables automatic scaling, and either bound can independently be
 `None`.
 
+When X is the time variable, the **aggregate** combos resample Y and Y2: each
+point is the statistic over one period, drawn at the period's start. See
+[Temporal aggregation](#temporal-aggregation).
+
 ## Contour tab
 
 The Contour tab displays a two-dimensional Z slice.
@@ -227,17 +235,23 @@ The Contour tab displays a two-dimensional Z slice.
 - Z can be transposed.
 - X and Y axes can be inverted.
 - The field is drawn as a heat map, one image cell per grid cell.
-- pyqtgraph colormaps can be selected and reversed.
+- pyqtgraph colormaps can be selected and reversed, with a
+  [colour scale](#colour-scales).
 - Grid lines can be enabled.
 - Drag to pan, scroll to zoom; right-click for the export menu.
+- [Time controls](#time-controls) step the time dimension while it is a
+  selected index; they are off while time is one of the plotted axes.
+- With **Cursor** ticked, double-clicking a cell plots its
+  [time series](#cell-time-series).
 
 The `zlim` field uses the same `min, max` syntax as the Scatter limits. The
 bounds control the displayed color range and clip values outside that range.
 
 ## Map tab
 
-The Map tab displays a two-dimensional variable with Cartopy. Install the
-`map` or `full` extra to enable it.
+The Map tab displays a two-dimensional variable with Cartopy, which is
+installed with ncv. If Cartopy cannot be imported, the tab explains why and
+the other tabs keep working.
 
 - Recognized longitude and latitude variables are selected automatically.
 - One-dimensional and two-dimensional coordinate arrays are supported.
@@ -247,12 +261,18 @@ The Map tab displays a two-dimensional variable with Cartopy. Install the
 - Longitude and latitude can be inverted.
 - Longitude data can be shifted by half the grid width.
 - Minimum and maximum color limits can be entered manually.
-- The **all** option forces the range calculation to inspect the complete
-  variable; large variables may otherwise be sampled when calculating their
-  initial range.
+- The **all** option recalculates the colour range from the whole variable:
+  read in full when it fits the memory budget, otherwise from a sample of
+  whole chunks spread over it.
 - Large grids are downsampled to stay responsive; `full res` draws every
   cell.
-- Colormaps can be selected and reversed.
+- Colormaps can be selected and reversed, with a
+  [colour scale](#colour-scales).
+- With **Cursor** ticked, double-clicking a cell plots its
+  [time series](#cell-time-series).
+- With **matrix** ticked, switching to the Matrix tab shows the same variable,
+  selections, time step and aggregation, centred on the cell at the middle of
+  the map view.
 - Global/cyclic display, coastlines, borders, rivers, lakes, and grid lines
   can be enabled independently.
 - Central longitude can be detected automatically or entered explicitly.
@@ -286,7 +306,10 @@ The Matrix tab combines a read-only array table with NetCDF metadata.
 - **Show cell indices** replaces coordinate headers with zero-based source
   indices.
 - The read-only minimum and maximum fields show the current Z slice. Enabling
-  **all** calculates the range from the complete variable.
+  **all** calculates the range from the complete variable, which reads all
+  of it: slow, and memory-hungry, on large variables.
+- Stepping through time keeps the table's scroll position; loading another
+  chunk with the outer scroll bars starts at its top-left corner.
 
 When no Z variable is selected, the text browser shows dataset metadata,
 including dimensions, variables, groups, and global attributes. Selecting Z
@@ -295,9 +318,11 @@ attributes.
 
 ## Time controls
 
-Map and Matrix provide shared time navigation whenever the selected variable
-contains the detected time dimension. Both unlimited and fixed-size time
-dimensions are supported. The controls are disabled for static variables.
+Contour, Map and Matrix provide shared time navigation whenever the selected
+variable contains the detected time dimension. Both unlimited and fixed-size
+time dimensions are supported. The controls are disabled for static variables.
+With a [temporal aggregation](#temporal-aggregation) chosen they step through
+periods (e.g. months) instead of single time steps.
 
 | Control | Action |
 | --- | --- |
@@ -317,6 +342,57 @@ The boundary mode determines what animation does at the first or last frame:
 The slider, dimension selector, displayed frame, and `Time:` label remain
 synchronized. In Matrix, time-dependent X and Y headers follow the selected Z
 frame.
+
+## Temporal aggregation
+
+Every tab has two **aggregate** combos: a resolution (None, Hourly, Daily,
+Monthly, Annual, Entire period) and a statistic (Sum, Mean, Mode, Median,
+Minimum, Maximum). Missing values are skipped.
+
+- Only resolutions longer than the data's time step can be chosen; daily data
+  offers Monthly, Annual and Entire period.
+- Mode is offered only for discrete data (unpacked integers such as classes
+  or counts). On continuous values almost every value is unique, so a mode
+  would just be the minimum.
+- Contour, Map and Matrix show one period's statistic per frame; the time
+  controls step through periods and the `Time:` label shows the period (e.g.
+  `2001-03`).
+- Scatter aggregates Y and Y2 when X is the time variable; the time-series
+  dialog aggregates its lines.
+
+Frames are computed from the period's time steps as they are read, so memory
+stays bounded. On an hourly variable stored one chunk per step, a monthly
+frame takes about 10 ms and an annual one about 150 ms. **Entire period**
+reads every time step once, which takes as long as reading the whole time
+axis. Changing the aggregation of a Scatter plot or of the time-series dialog
+does not read the file again.
+
+## Cell time series
+
+With **Cursor** ticked, double-clicking a data cell in the Contour or Map tab
+plots that cell's values through time in a separate window. Each further
+double-click adds a line, labelled with the cell's coordinates and indices;
+clicks beside the grid or on missing cells are ignored. The window's own
+**aggregate** combos resample all lines.
+
+The first double-click reads the time series of every cell in the clicked
+cell's file chunk (it costs the same as one cell), so further clicks in that
+chunk need no read. That memory is released when the window closes.
+
+## Colour scales
+
+Contour and Map offer a colour scale next to the colormap:
+
+| Scale | Colour spacing |
+| --- | --- |
+| Linear | Even between the limits |
+| Log | Logarithmic (positive data; values at or below zero get the lowest colour) |
+| Low | More colours for the low end of the range |
+| High | More colours for the high end of the range |
+| Banded | Ten flat bands, like filled contours |
+| Equalised | Each colour covers about the same number of cells |
+
+The colour bar keeps a linear value axis and shows where each colour falls.
 
 ## File-reading behavior
 

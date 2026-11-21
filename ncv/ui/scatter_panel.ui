@@ -132,6 +132,96 @@
          </widget>
         </item>
         <item>
+         <widget class="QLabel" name="label_aggregate">
+          <property name="text">
+           <string>aggregate</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="comboBox_tres">
+          <property name="toolTip">
+           <string>Temporal resolution: show each period's statistic over time instead of single time steps. Only periods longer than the data's time step can be chosen.</string>
+          </property>
+          <property name="sizeAdjustPolicy">
+           <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+          </property>
+          <item>
+           <property name="text">
+            <string>None</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Hourly</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Daily</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Monthly</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Annual</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Entire period</string>
+           </property>
+          </item>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="comboBox_tstat">
+          <property name="toolTip">
+           <string>Statistic over each period's time steps (missing values are skipped)</string>
+          </property>
+          <property name="currentIndex">
+           <number>1</number>
+          </property>
+          <property name="sizeAdjustPolicy">
+           <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+          </property>
+          <item>
+           <property name="text">
+            <string>Sum</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Mean</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Mode</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Median</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Minimum</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>Maximum</string>
+           </property>
+          </item>
+         </widget>
+        </item>
+        <item>
          <spacer name="horizontalSpacer_Xdim">
           <property name="orientation">
            <enum>Qt::Orientation::Horizontal</enum>

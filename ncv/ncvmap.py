@@ -539,11 +539,8 @@ class MapPanel(TimeControlMixin, PlotPanel):
         self.checked()
 
     def spinned_v(self):
-        if self.iunlim >= 0:
-            try:
-                self.set_tstep(int(self.vd.values()[self.iunlim]))
-            except (ValueError, IndexError):
-                pass
+        if self.iunlim >= 0:    # the step's frame (its period while aggregating)
+            self.set_tstep(self._current_time_index())
         self.checked()
 
     def get_vminmax(self):
@@ -892,7 +889,8 @@ class MapPanel(TimeControlMixin, PlotPanel):
         else:
             values = selvar(self, vz)
             label = set_axis_label(values)
-        out = self.slice_miss(self.vd, values, window=window, native=native)
+        out = self.slice_miss(self.vd, values, window=window, native=native,
+                              aggregate=True)
         values, native_range = (out if isinstance(out, tuple)
                                 else (np.asarray(out, dtype=float), None))
         if self.checkBox_transVariable.isChecked():
@@ -1009,19 +1007,17 @@ class MapPanel(TimeControlMixin, PlotPanel):
         return vv if self._scale is None else self._scale(
             np.asarray(vv, dtype=np.float32).copy())
 
-    def _double_clicked(self, x, y):
-        """Add the series of the data cell under a double-click; a click off
-        the grid or on a missing cell does nothing."""
+    def _shown_cell(self, x, y):
+        """``(drawn cell, (row, col) in the loaded patch, label)`` under view
+        point ``x``/``y``, or None off the grid."""
         if self.iproj is None or self.ivv is None:
-            return
+            return None
         lon, lat = ccrs.PlateCarree().transform_point(x, y, self.iproj)
         if not (np.isfinite(lon) and np.isfinite(lat)):
-            return
+            return None
         cell = nearest_map_cell(lon, lat, self.ixx, self.iyy, self.ivv.shape)
-        if (cell is None
-                or not cell_contains(lon, lat, self.ixx, self.iyy, cell)
-                or not np.isfinite(cell_value(self.ivv, cell))):
-            return
+        if cell is None or not cell_contains(lon, lat, self.ixx, self.iyy, cell):
+            return None
         # label with the drawn cell's centre
         clon, clat = ((self.ixx[cell], self.iyy[cell]) if np.ndim(self.ixx) > 1
                       else (self.ixx[cell[1]], self.iyy[cell[0]]))
@@ -1034,9 +1030,41 @@ class MapPanel(TimeControlMixin, PlotPanel):
         col %= ncols
         if self.checkBox_shiftLongitude.isChecked():
             col = (col - ncols // 2) % ncols
+        return cell, (row, col), where
+
+    def _double_clicked(self, x, y):
+        """Add the series of the data cell under a double-click; a click off
+        the grid or on a missing cell does nothing."""
+        shown = self._shown_cell(x, y)
+        if shown is None or not np.isfinite(cell_value(self.ivv, shown[0])):
+            return
+        _cell, (row, col), where = shown
         self._plot_cell_series(self.comboBox_variable.currentText(), self.vd,
                                row, col, self.checkBox_transVariable.isChecked(),
                                where)
+
+    def matrix_target(self):
+        """What the Matrix needs to show this map: ``(variable, dimension
+        selections, cell, resolution, statistic)``, the cell being the
+        variable indices (shown axes, variable order) at the view's centre -
+        or the loaded patch's middle when the centre is off the grid."""
+        v = self.comboBox_variable.currentText()
+        values = self.vd.values()
+        if not v or self._zwindow is None:
+            return None
+        centre = self.item.vb.viewRect().center()
+        shown = self._shown_cell(centre.x(), centre.y())
+        if shown is None:
+            (r0, r1, rs), (c0, c1, cs) = self._zwindow
+            cell = ((r0 + r1) // 2, (c0 + c1) // 2)
+        else:
+            row, col = shown[1]
+            if self.checkBox_transVariable.isChecked():
+                row, col = col, row
+            (r0, _r1, rs), (c0, _c1, cs) = self._zwindow
+            cell = (r0 + row * rs, c0 + col * cs)
+        return (v, values, cell, self.comboBox_tres.currentText(),
+                self.comboBox_tstat.currentText())
 
     def _format_cursor(self, x, y):
         if self.iproj is None:

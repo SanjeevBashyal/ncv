@@ -133,7 +133,15 @@ class NcvMainWindow(QtWidgets.QMainWindow):
 
     def _tab_changed(self, _index):
         panel = self.tabWidget_main.currentWidget()
-        if hasattr(panel, "redraw"):
+        # Map "matrix" ticked: the Matrix opens on what the Map shows (synced
+        # only now - nothing runs while the Map is in use)
+        follow = getattr(self.map, "checkBox_matrix", None)
+        target = (self.map.matrix_target()
+                  if panel is self.matrix and follow and follow.isChecked()
+                  else None)
+        if target is not None:
+            self.matrix.follow(*target)
+        elif hasattr(panel, "redraw"):
             panel.redraw()
 
     def open_file_dialog(self, use_xarray):

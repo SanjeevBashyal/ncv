@@ -9,6 +9,7 @@ from .dimensions import (
     resolve_selected_variable,
 )
 from .ncvcommon import DimensionControlRow, PlotPanel, ScrollableView
+from .ncvcommon import TimeControlMixin
 from .ncvcommon import cell_double_click, color_levels, cursor_label, load_ui
 from .ncvcommon import native_levels, set_palette_image
 from .ncvcommon import color_scale, scaled_colormap
@@ -20,7 +21,7 @@ from .ncvutils import set_axis_label, vardim2var
 from .qt_compat import QtCore, QtWidgets, pg
 
 
-class ContourPanel(PlotPanel):
+class ContourPanel(TimeControlMixin, PlotPanel):
     """Contour plot tab, drawn as a heat map."""
 
     def __init__(self, window, session):
@@ -57,6 +58,7 @@ class ContourPanel(PlotPanel):
         self.xDimensionsLayout.addWidget(self.xd)
         self.yDimensionsLayout.addWidget(self.yd)
         self.populate_cmap_combo(self.comboBox_cmap)
+        self.init_time_controls(self.comboBox_z, self.zd)
 
         self.comboBox_z.currentIndexChanged.connect(self.selected_z)
         self.checkBox_transposeZ.stateChanged.connect(self.checked)
@@ -84,6 +86,7 @@ class ContourPanel(PlotPanel):
         for dimensions in (self.zd, self.xd, self.yd):
             dimensions.set_specs(empty_dimension_specs(self.maxdim))
         self._reset_z_limits()
+        self.set_unlim("")
         self._updating = False
 
     def checked(self):
@@ -101,7 +104,28 @@ class ContourPanel(PlotPanel):
         self.checked()
 
     def spinned_z(self):
+        self._sync_time()
         self.checked()
+
+    def _sync_time(self):
+        """Time controls for z; off while time is one of the image's axes."""
+        self.set_unlim(self.comboBox_z.currentText())
+        if self.iunlim >= 0:
+            self.set_tstep(self._current_time_index())
+
+    def update_frame(self, isframe=False):
+        if self.iunlim < 0 or self.nunlim <= 0:
+            self._stop_animation()
+            return
+        if not isframe:
+            index, direction, stop = self._next_time_index(self.anim_inc)
+            if stop:
+                self._stop_animation()
+                return
+            if direction != self.anim_inc:
+                self._set_animation_direction(direction)
+            self.set_tstep(index)
+        self.redraw()
 
     def selected_cmap(self):
         self.checked()
@@ -141,6 +165,7 @@ class ContourPanel(PlotPanel):
         self.zd.set_specs(
             dimension_specs(self, self.comboBox_z.currentText(), "z"))
         self._auto_transpose(self.comboBox_z.currentText())
+        self._sync_time()
         self.redraw()
 
     def _z_dims(self, z):
@@ -210,7 +235,7 @@ class ContourPanel(PlotPanel):
         zz, zlabel, _zdate, zrange = self._series(
             z, self.zd,
             window=self.scroll_window(z, self.zd, center=self._reload_center),
-            native=True)
+            native=True, aggregate=True)
         transposed = self.checkBox_transposeZ.isChecked()
         if transposed:
             zz = zz.T
@@ -272,10 +297,13 @@ class ContourPanel(PlotPanel):
         self.item.vb.invertX(self.checkBox_invX.isChecked())
         self.item.vb.invertY(self.checkBox_invY.isChecked())
         self._xx, self._yy, self._zz = xx, yy, zz
-        # reset the view only when *what* is shown changes; a chunk reload or a
-        # colour/grid tweak keeps the user's view and just re-syncs the bars
+        # reset the view only when *what* is shown changes; a chunk reload, a
+        # time step or a colour/grid tweak keeps the user's view
+        dims = self.zd.values()
+        if 0 <= self.iunlim < len(dims):
+            dims[self.iunlim] = "time"
         key = (z, x, y, transposed, self.checkBox_fullCoarse.isChecked(),
-               tuple(self.zd.values()))
+               tuple(dims))
         if key != self._view_key:
             self._view_key = key
             self.initial_view()

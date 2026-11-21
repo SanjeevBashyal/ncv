@@ -1861,3 +1861,200 @@ def test_matrix_time_step_keeps_table_scroll(tmp_path, qt_app, monkeypatch):
     assert panel._zwindow[1][0] == 150
     assert inner_v.value() == 0 and inner_h.value() == 0
     session.close()
+
+
+def test_aggregation_helpers():
+    from ncv.ncvutils import (aggregate_series, coarser_resolutions, nanmode,
+                              period_starts)
+
+    hours = np.arange("2001-01-01T00", "2001-03-01T00", dtype="datetime64[h]")
+    days = hours[::24]
+    assert coarser_resolutions(hours)[0] == "Daily"
+    assert coarser_resolutions(days) == ["Monthly", "Annual", "Entire period"]
+    assert list(period_starts(hours, "Monthly")) == [0, 744]
+    assert list(period_starts(days, "Entire period")) == [0]
+    y = np.random.default_rng(1).integers(0, 4, (hours.size, 2)).astype(float)
+    y[:24] = np.nan                                      # an empty day
+    starts = period_starts(hours, "Daily")
+    stops = np.r_[starts[1:], hours.size]
+    loops = {"Sum": np.nansum, "Mean": np.nanmean, "Minimum": np.nanmin,
+             "Maximum": np.nanmax, "Median": np.nanmedian}
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        for stat, fn in loops.items():
+            ref = np.array([fn(y[a:b], axis=0) for a, b in zip(starts, stops)])
+            ref[0] = np.nan                              # no values: NaN
+            np.testing.assert_allclose(aggregate_series(y, starts, stat), ref)
+    np.testing.assert_array_equal(                       # ties: the smallest
+        nanmode(np.array([[1, 2], [2, 2], [2, 3], [1, np.nan], [3, np.nan]])),
+        [1, 2])
+
+
+def _hourly_lat_lon(path, steps=24 * 90):
+    data = np.random.default_rng(0).integers(0, 5, (steps, 4, 6)).astype("f4")
+    data[5, 1, 1] = np.nan
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("time", None)
+        ds.createDimension("lat", 4)
+        ds.createDimension("lon", 6)
+        t = ds.createVariable("time", "f8", ("time",))
+        t.units = "hours since 2001-01-01"
+        t[:] = np.arange(steps)
+        lat = ds.createVariable("lat", "f4", ("lat",))
+        lat.units = "degrees_north"
+        lat[:] = [-30, -10, 10, 30]
+        lon = ds.createVariable("lon", "f4", ("lon",))
+        lon.units = "degrees_east"
+        lon[:] = np.arange(6) * 60.0
+        ds.createVariable("v", "f4", ("time", "lat", "lon"), chunksizes=(1, 4, 6),
+                          fill_value=np.float32(-9999))[:] = np.ma.masked_invalid(data)
+    return data
+
+
+def test_contour_monthly_aggregation_streams_and_caches(tmp_path, qt_app, monkeypatch):
+    import ncv.ncvcommon as common
+    from ncv.ncvcontour import ContourPanel
+    from ncv.session import NcvSession
+
+    data = _hourly_lat_lon(tmp_path / "h.nc")
+    session = NcvSession()
+    session.open([str(tmp_path / "h.nc")])
+    panel = ContourPanel(_panel_window(), session)
+    panel.comboBox_z.setCurrentText(next(c for c in session.cols if c.startswith("v ")))
+    assert panel.zd.values() == ["0", "all", "all"]      # lat x lon at a step
+    assert panel.horizontalSlider_timeStep.isEnabled()
+    panel.comboBox_tres.setCurrentText("Monthly")
+    assert panel.nunlim == 3 and panel.horizontalSlider_timeStep.maximum() == 2
+    assert panel.label_timeValue.text() == "2001-01"
+    np.testing.assert_allclose(panel._zz, np.nanmean(data[:744], 0))
+    panel.next_t()
+    assert panel.label_timeValue.text() == "2001-02" and panel.zd.values()[0] == "744"
+    feb = data[744:744 + 672]
+    for stat, fn in (("Sum", np.nansum), ("Maximum", np.nanmax),
+                     ("Median", np.nanmedian)):
+        panel.comboBox_tstat.setCurrentText(stat)
+        np.testing.assert_allclose(panel._zz, fn(feb, 0))
+    monkeypatch.setattr(common, "memory_budget_cells", lambda *a, **k: 3000)
+    panel._agg_cache = None                              # Median in row blocks
+    panel.redraw()
+    np.testing.assert_allclose(panel._zz, np.nanmedian(feb, 0))
+    reads = []
+    real = common.get_slice_values
+    monkeypatch.setattr(common, "get_slice_values",
+                        lambda *a, **k: (reads.append(1), real(*a, **k))[1])
+    panel.redraw()                                       # same frame: cached
+    assert reads == []
+    panel.comboBox_tres.setCurrentText("None")           # back to raw steps
+    assert panel.nunlim == data.shape[0]
+    np.testing.assert_allclose(panel._zz, data[744])
+    session.close()
+
+
+def test_scatter_and_series_dialog_aggregate(tmp_path, qt_app):
+    from ncv.ncvcontour import ContourPanel
+    from ncv.ncvscatter import ScatterPanel
+    from ncv.session import NcvSession
+
+    data = _hourly_lat_lon(tmp_path / "h.nc")
+    session = NcvSession()
+    session.open([str(tmp_path / "h.nc")])
+    pick = lambda name: next(c for c in session.cols if c.startswith(name + " "))
+    scatter = ScatterPanel(_panel_window(), session)
+    scatter.comboBox_x.setCurrentText(pick("datetime"))
+    scatter.comboBox_y.setCurrentText(pick("v"))
+    for i, value in enumerate(("all", "2", "3")):
+        scatter.yd.set_value(i, value)
+    scatter.comboBox_tres.setCurrentText("Daily")
+    scatter.comboBox_tstat.setCurrentText("Sum")
+    x, y = scatter.curves_y[0].getData()
+    assert y.size == 90 and x[1] - x[0] == 86400        # at each day's start
+    np.testing.assert_allclose(y, np.nansum(data[:, 2, 3].reshape(90, 24), 1))
+
+    contour = ContourPanel(_panel_window(), session)
+    contour.comboBox_z.setCurrentText(pick("v"))
+    contour.checkBox_cursor.setChecked(True)
+    contour._double_clicked(contour._xx[3], contour._yy[2])
+    win = contour._series_win
+    line = win.plot.plotItem.listDataItems()[0]
+    np.testing.assert_allclose(line.yData, data[:, 2, 3])
+    win.tres.setCurrentText("Monthly")                   # no read: from raw
+    win.tstat.setCurrentText("Maximum")
+    np.testing.assert_allclose(line.yData, [data[:744, 2, 3].max(),
+                                            data[744:1416, 2, 3].max(),
+                                            data[1416:, 2, 3].max()])
+    session.close()
+
+
+def test_map_matrix_box_makes_matrix_follow(tmp_path, qt_app):
+    from ncv.app import NcvMainWindow
+    from ncv.ncvmap import HAVE_CARTOPY
+    from ncv.session import NcvSession
+
+    if not HAVE_CARTOPY:
+        pytest.skip("Cartopy is not installed")
+    _hourly_lat_lon(tmp_path / "h.nc")
+    session = NcvSession()
+    session.open([str(tmp_path / "h.nc")])
+    window = NcvMainWindow(session)
+    window.resize(1200, 900)
+    window.show()
+    qt_app.processEvents()
+    tabs = window.tabWidget_main
+    tabs.setCurrentWidget(window.map)
+    item = next(c for c in session.cols if c.startswith("v "))
+    window.map.comboBox_variable.setCurrentText(item)
+    window.map.comboBox_tres.setCurrentText("Daily")
+    window.map.next_t()                                  # day 2
+    window.map.checkBox_matrix.setChecked(True)
+    target = window.map.matrix_target()
+    assert target[0] == item and target[3] == "Daily"
+
+    tabs.setCurrentWidget(window.matrix)
+    qt_app.processEvents()
+    matrix = window.matrix
+    assert matrix.comboBox_z.currentText() == item
+    assert matrix.comboBox_tres.currentText() == "Daily"
+    assert matrix.label_timeValue.text() == window.map.label_timeValue.text()
+    assert matrix.zd.values() == window.map.vd.values()
+    np.testing.assert_allclose(np.asarray(matrix.model.values, dtype=float),
+                               window.map.ivv[:, :6], equal_nan=True)
+    for win in list(NcvMainWindow.instances):
+        win.close()
+    session.close()
+
+
+def test_mode_only_for_discrete_data(tmp_path, qt_app):
+    from ncv.ncvcommon import is_discrete
+    from ncv.ncvcontour import ContourPanel
+    from ncv.session import NcvSession
+
+    path = tmp_path / "kinds.nc"
+    with nc.Dataset(path, "w") as ds:
+        ds.createDimension("time", None)
+        ds.createDimension("lat", 2)
+        ds.createDimension("lon", 3)
+        t = ds.createVariable("time", "f8", ("time",))
+        t.units = "hours since 2001-01-01"
+        t[:] = np.arange(48.0)
+        for name, kind in (("cls", "i4"), ("packed", "i2"), ("flt", "f4")):
+            var = ds.createVariable(name, kind, ("time", "lat", "lon"))
+            if name == "packed":
+                var.scale_factor = 0.1
+            var[:] = np.ones((48, 2, 3))
+        ds.createVariable("lat", "f4", ("lat",)).units = "degrees_north"
+        ds.createVariable("lon", "f4", ("lon",)).units = "degrees_east"
+    session = NcvSession()
+    session.open([str(path)])
+    fi = session.fi[0]
+    assert is_discrete(fi["cls"])
+    assert not is_discrete(fi["packed"]) and not is_discrete(fi["flt"])
+    panel = ContourPanel(_panel_window(), session)
+    mode = panel.comboBox_tstat.findText("Mode")
+    enabled = lambda: panel.comboBox_tstat.model().item(mode).isEnabled()
+    panel.comboBox_z.setCurrentText(next(c for c in session.cols if c.startswith("cls ")))
+    panel.comboBox_tstat.setCurrentText("Mode")
+    assert enabled()
+    panel.comboBox_z.setCurrentText(next(c for c in session.cols if c.startswith("flt ")))
+    assert not enabled() and panel.comboBox_tstat.currentText() == "Mean"
+    session.close()

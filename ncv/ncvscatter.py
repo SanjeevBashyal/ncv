@@ -5,10 +5,12 @@ import ast
 
 import numpy as np
 
-from .dimensions import dimension_specs, empty_dimension_specs
+from .dimensions import (dimension_specs, empty_dimension_specs,
+                         resolve_selected_variable)
 from .ncvcommon import DimensionControlRow, PlotPanel, cursor_label, load_ui
-from .ncvcommon import parse_limits, set_combo_items
-from .ncvutils import datetime_str
+from .ncvcommon import allow_mode, is_discrete
+from .ncvcommon import parse_limits, resolution_starts, set_combo_items
+from .ncvutils import aggregate_series, datetime_str
 from .qt_compat import QtCore, QtWidgets, pg
 
 
@@ -57,6 +59,7 @@ class ScatterPanel(PlotPanel):
         super().__init__(window, session, "Scatter/Line")
         self.curves_y = []
         self.curves_y2 = []
+        self._reads = None      # (selection key, last x/y/y2 reads)
         self._build_ui()
         self.reinit()
 
@@ -87,6 +90,8 @@ class ScatterPanel(PlotPanel):
 
         self.comboBox_x.currentIndexChanged.connect(self.selected_x)
         self.checkBox_invX.stateChanged.connect(self.checked_x)
+        for combo in (self.comboBox_tres, self.comboBox_tstat):
+            combo.currentIndexChanged.connect(lambda _i: self.redraw())
         self.comboBox_y.currentIndexChanged.connect(self.selected_y)
         self.checkBox_invY.stateChanged.connect(self.checked_y)
         self.pushButton_redraw.clicked.connect(self.redraw)
@@ -304,17 +309,42 @@ class ScatterPanel(PlotPanel):
         if not (y or y2):
             return
 
-        yy = yy2 = None
-        ylabel = ylabel2 = ""
-        if y:
-            yy, ylabel, self._ydate, _ = self._series(y, self.yd)
-        if y2:
-            yy2, ylabel2, _y2date, _ = self._series(y2, self.y2d)
-        if x:
-            xx, xlabel, self._xdate, _ = self._series(x, self.xd)
-        else:
-            xx = np.arange((yy if y else yy2).shape[0], dtype=float)
-            xlabel, self._xdate = "", False
+        # the reads are kept: an aggregation or style change re-plots without
+        # reading again (a 244k-step series takes 2.5 s to read)
+        key = (self.session.generation, x, y, y2, tuple(self.xd.values()),
+               tuple(self.yd.values()), tuple(self.y2d.values()))
+        if self._reads is None or self._reads[0] != key:
+            yy = yy2 = None
+            ylabel = ylabel2 = ""
+            ydate = False
+            if y:
+                yy, ylabel, ydate, _ = self._series(y, self.yd)
+            if y2:
+                yy2, ylabel2, _y2date, _ = self._series(y2, self.y2d)
+            if x:
+                xx, xlabel, xdate, _ = self._series(x, self.xd)
+            else:
+                xx = np.arange((yy if y else yy2).shape[0], dtype=float)
+                xlabel, xdate = "", False
+            self._reads = (key, (xx, xlabel, xdate, yy, ylabel, ydate,
+                                 yy2, ylabel2))
+        (xx, xlabel, self._xdate, yy, ylabel, self._ydate,
+         yy2, ylabel2) = self._reads[1]
+        # X is time: Y and Y2 can be aggregated over periods, drawn at each
+        # period's start (reduceat: ~16 ms for 244k steps)
+        for combo in (self.comboBox_tres, self.comboBox_tstat):
+            combo.setEnabled(self._xdate)
+        if self._xdate and xx.ndim == 1:
+            allow_mode(self.comboBox_tstat, all(
+                is_discrete(resolve_selected_variable(self, name)[2])
+                for name in (y, y2) if name))
+            starts = resolution_starts(
+                self.comboBox_tres, xx.astype(np.int64).astype("datetime64[s]"))
+            if starts is not None:
+                stat = self.comboBox_tstat.currentText()
+                xx = xx[starts]
+                yy = aggregate_series(yy, starts, stat) if y else None
+                yy2 = aggregate_series(yy2, starts, stat) if y2 else None
 
         self._set_axis("bottom", self._xdate)
         self._set_axis("left", self._ydate)

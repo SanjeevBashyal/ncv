@@ -33,9 +33,10 @@ ncv` must not touch Qt or Cartopy.
   together. Read the current `.ui` before editing, because the user edits forms
   in Designer.
 - Each panel has a static status row `horizontalLayout_status`: `label_cursor`
-  on the left; on the right, the Map has the time labels and the Matrix has
-  `pushButton_metadata` and the time labels. The cursor read-out runs only while
-  `checkBox_cursor` is ticked.
+  on the left; on the right, the Contour and Map have the time labels and the
+  Matrix has `pushButton_metadata` and the time labels. The cursor read-out
+  (and the Contour/Map double-click series) runs only while `checkBox_cursor`
+  is ticked.
 - Open File / Open xarray / New Window are `menuFile` actions in
   `main_window.ui`, not panel buttons.
 
@@ -83,6 +84,9 @@ ncv` must not touch Qt or Cartopy.
   north-up. A variable with lat and lon dimensions defaults to the lat x lon
   slice: the first two dims (e.g. depth x lat at lon 0) are a thin slice that
   decompresses every chunk along lat (27 s on a 6x84000x216000 tiled variable).
+  Its time controls (`TimeControlMixin`, as on the Map) step time while it is a
+  fixed index and stay off while time is one of the image's axes; a time step
+  keeps the view (the view key ignores the time selector).
 - **Map**: navigation and loading are decoupled. It opens at the world extent,
   and the bars choose the loaded patch, which is read at the screen's
   resolution (re-read only when a settled zoom needs ≥2× finer or coarser data).
@@ -92,6 +96,12 @@ ncv` must not touch Qt or Cartopy.
   With no variable selected, no coordinates are read.
   The view re-ranges only on first draw, a projection or central-longitude
   change, `global`, or `bbox` (fits the variable's lon/lat extent).
+  With `checkBox_matrix` ticked, opening the Matrix tab calls
+  `matrix.follow(*map.matrix_target())`: same variable, selections, time and
+  aggregation, the chunk centred on the cell at the view's centre (one read;
+  nothing runs while the Map is in use). `_shown_cell` undoes the display
+  steps (mesh stride, cyclic column, shifted longitude) for this and for the
+  double-click.
 - **Map rendering**: rectilinear grids (1-D lon/lat, or 2-D lon/lat with
   identical rows and columns) draw as an `ImageItem` on the CPU viewport.
   Curvilinear grids draw as a `PColorMeshItem`, and the Map switches to the
@@ -104,7 +114,42 @@ ncv` must not touch Qt or Cartopy.
 - **Matrix**: the outer bars pick the loaded chunk (thumb = the chunk); the
   table's own bars scroll within it without reading. Headers and
   `showCellIndices` follow the chunk's window. The metadata pane is a collapsible
-  splitter (`Metadata: ▶` / `▲`) that remembers its width.
+  splitter (`Metadata: ▶` / `▲`) that remembers its width. A time step with an
+  unchanged table shape updates in place (`dataChanged`, no model reset), so
+  the table keeps its scroll position; only a new chunk or shape goes back to
+  the top left.
+- **Cell series** (double-click on a Contour/Map data cell; off the grid or on
+  a missing cell does nothing): one dialog per panel overlays a line per cell.
+  netCDF pays per chunk, so the cell's whole spatial chunk tile is read in the
+  same pass and kept (`_series_tile`, freed when the dialog closes): on a
+  244k-step file stored one chunk per step, 2.7 s for the first cell, ~20 ms
+  for any other cell in the tile. Series over 2000 steps draw without markers
+  (one pixmap blit per point per repaint), with `peak` downsampling and
+  `clipToView`.
+- **Colour scales** (`comboBox_cscale`): `color_scale` maps values in place to
+  colour positions 0..1 (Linear keeps the old fast path); the colour bar shows
+  `scaled_colormap`. Equalised looks up a 65536-bin CDF table (`np.interp` on
+  quantiles took 2.5 s at 36M cells).
+
+## Temporal Aggregation
+
+- `comboBox_tres` (None, Hourly, Daily, Monthly, Annual, Entire period) and
+  `comboBox_tstat` (Sum, Mean, Mode, Median, Minimum, Maximum) on every panel
+  and in the series dialog (made in code there). Only resolutions coarser than
+  the data's median step are selectable (`coarser_resolutions`). Mode only for
+  discrete data (`is_discrete`: unpacked integers); on continuous values every
+  value is unique and the mode degenerates to the minimum.
+- Periods are contiguous slices from datetime64 truncation (`period_starts`).
+  `TimeControlMixin._periods` holds the starts plus the end; the slider steps
+  periods while the time selector keeps the period's first raw step.
+- Gridded frames: `read_values(..., aggregate=True)` (Contour z, Map variable,
+  Matrix z only). Sum/Mean/Minimum/Maximum stream whole time chunks into
+  float64 accumulators (memory = one block); Median/Mode read the whole period
+  in chunk-aligned row blocks; no chunk is decompressed twice. One frame is
+  cached (`_agg_cache`). On tp.nc: ~10 ms a month, ~150 ms a year.
+- Series and Scatter: `aggregate_series` (`reduceat`; equal-length periods
+  reshape for Median/Mode) on reads kept in memory, so changing the
+  aggregation never re-reads (~20-35 ms for 244k steps).
 
 ## Development Notes
 
